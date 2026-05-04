@@ -45,9 +45,16 @@ Our contributions are:
 \begin{itemize}
   \item We introduce next-state vector prediction as a direct test of whether frozen text embedding models support action-conditioned world-state dynamics.
   \item We use a lightweight gated residual FiLM transition probe trained with InfoNCE, avoiding both brittle text decoding and destructive action modulation.
-  \item We build a multi-dataset evaluation suite from synthetic data, ProPara, OpenPI-C, SCONE, ALFWorld, and TRIP, including natural-language rewrites for structured state annotations.
+\item We build a multi-dataset evaluation suite from synthetic data, ProPara, OpenPI-C, SCONE, ALFWorld, and TRIP, including natural-language rewrites for structured state annotations.
   \item We show that embedding-space transition models can perform well on several public physical-state datasets, while ALFWorld exposes a harder embodied dynamics setting.
 \end{itemize}
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=\linewidth]{figures/figure1.png}
+  \caption{Overview of next-state vector prediction. A frozen text embedding model encodes the current state and action, a lightweight transition probe predicts the next-state embedding, and retrieval evaluates whether the predicted vector recovers the correct candidate next state.}
+  \label{fig:overview}
+\end{figure}
 
 \section{Related Work}
 
