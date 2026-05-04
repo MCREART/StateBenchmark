@@ -141,6 +141,8 @@ TRIP contains dense physical state annotations for commonsense stories. We use t
 
 Table~\ref{tab:core-results} reports the three datasets that were run with all six encoders, so models can be compared within the same dataset group. Table~\ref{tab:extended-results} collects the remaining datasets as a separate extension set.
 
+Across the core datasets, one-step retrieval is substantially above chance, but the difficulty varies sharply by dataset. OpenPI-C and TRIP-known show strong transition recoverability, while ALFWorld-noGoto remains difficult despite high top-5 and top-10 retrieval. This suggests that embedding-space transitions capture coarse physical changes more reliably than fine-grained embodied object identity.
+
 \begin{table}[t]
   \centering
   \caption{Core datasets with all six encoders using gated residual FiLM. Values are mean $\pm$ standard deviation over three seeds. Top-$k$ is exact next-state retrieval among test candidates. Bold marks the best Top-1 encoder within each dataset group.}
