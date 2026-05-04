@@ -188,6 +188,13 @@ Across the core datasets, one-step retrieval is substantially above chance, but 
 
 Table~\ref{tab:architecture-ablation} compares six transition inputs and architectures on the three core public datasets. We report mean top-1 retrieval over three random seeds. FiLM-style modulation improves over concatenation on most dataset--encoder pairs, with the clearest gains on OpenPI-C and TRIP-known. Adding a gate to residual FiLM often helps further, though not uniformly across all encoders. ALFWorld-noGoto remains noisier, and state-only is unexpectedly strong on TRIP-known, suggesting that many known-state transitions can be partially inferred from the current state distribution alone. Action-only is much weaker on OpenPI-C and TRIP-known, confirming that the action alone usually does not identify the next state. On ALFWorld-noGoto, however, action-only becomes more competitive with full transition models, suggesting that some household actions carry strong priors over the resulting object state.
 
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=\linewidth]{figures/architecture_ablation.png}
+  \caption{Architecture ablation averaged over the original three encoders on the core datasets. Full transition models are compared with diagnostic state-only and action-only baselines.}
+  \label{fig:architecture-ablation}
+\end{figure}
+
 \begin{table}[t]
   \centering
   \caption{Architecture ablation on core datasets. Values are top-1 retrieval accuracy, mean $\pm$ standard deviation over three seeds. Bold marks the best full transition model among concat, FiLM, residual FiLM, and gated residual FiLM. State-only and action-only are diagnostic input-prior baselines.}
@@ -243,6 +250,13 @@ Table~\ref{tab:architecture-ablation} compares six transition inputs and archite
 The preceding experiments evaluate one-step transitions, where each prediction starts from a gold current-state embedding. We additionally test whether the learned transition can be rolled forward without resetting to gold states. In autoregressive rollout, the first step uses the gold initial state and action, while later steps use the previous predicted vector as the next state input. Table~\ref{tab:multistep-rollout} reports final-horizon retrieval after three or five actions. SCONE provides the most stable multi-step estimate because it has thousands of contiguous windows; ALFWorld-noGoto and ProPara-DeepSeek provide smaller but useful trajectory-style checks. Strict three-step TRIP-known filtering leaves only ten windows, so we exclude it from the main multi-step table.
 
 As a diagnostic, we also run a teacher-forced variant on the same windows, where each step receives the gold current-state embedding rather than the previous prediction. Teacher forcing remains much stronger than autoregressive rollout: for Qwen3-Embedding-0.6B on SCONE-full, final top-10 is 42.27\% for three-step teacher forcing versus 7.98\% for three-step autoregressive rollout, and 43.08\% versus 1.22\% for five-step rollout. The same pattern appears on the smaller trajectory sets: bge-large reaches 98.94\% teacher-forced top-10 but 44.09\% autoregressive top-10 on ALFWorld-noGoto, and 93.43\% versus 73.71\% on ProPara-DeepSeek. This gap indicates that local action-conditioned transitions are learnable, but repeated vector predictions quickly drift away from the gold state manifold.
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=0.88\linewidth]{figures/multistep_rollout_decay.png}
+  \caption{SCONE-full multi-step Top-10 retrieval for Qwen3-Embedding-0.6B. Teacher forcing keeps each step on the gold-state manifold, while autoregressive rollout feeds predicted vectors forward and rapidly drifts.}
+  \label{fig:rollout-decay}
+\end{figure}
 
 \begin{table}[t]
   \centering
