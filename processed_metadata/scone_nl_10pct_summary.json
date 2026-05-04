@@ -1,0 +1,14 @@
+{
+  "train": {
+    "total_source": 55990,
+    "sampled": 5599
+  },
+  "dev": {
+    "total_source": 3210,
+    "sampled": 321
+  },
+  "test": {
+    "total_source": 13670,
+    "sampled": 1367
+  }
+}

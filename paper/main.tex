@@ -1,0 +1,353 @@
+\documentclass{article}
+
+\usepackage{neurips_2026}
+
+\usepackage[utf8]{inputenc}
+\usepackage{hyperref}
+\usepackage{url}
+\usepackage{booktabs}
+\usepackage{amsfonts}
+\usepackage{amsmath}
+\usepackage{xcolor}
+\usepackage{graphicx}
+
+\title{Beyond Next-Token: Evaluating LLM Embeddings for Next-State Dynamics}
+
+\author{%
+  Anonymous Authors\\
+  Anonymous Institution\\
+  anonymous@example.com
+}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+Large language models are predominantly built around the next-token prediction paradigm, but many understanding and reasoning problems are more naturally viewed as next-state prediction: given a current world state and an action, a model should predict the resulting world state. Studying this paradigm requires a representation space for natural-language states. Text embedding models, which are explicitly designed to represent text as vectors, provide a natural substrate for asking whether such state representations are updateable by actions. We propose next-state vector prediction as a diagnostic evaluation for this question. Given a natural-language current state and action, we freeze the text encoder and train only a lightweight transition probe to predict the embedding of the resulting next state. The predicted vector is evaluated by whether it retrieves the correct next-state embedding among candidates. We build a unified evaluation suite from synthetic state changes and five public state-tracking resources—ProPara, OpenPI-C, SCONE, ALFWorld, and TRIP—and compare multiple embedding families, including Qwen3-Embedding, BGE, E5, Jina, and MiniLM. Results show that frozen text embedding spaces contain usable one-step transition structure: top-1 retrieval reaches 74.7% on OpenPI-C and 68.2% on TRIP known-state transitions. However, embodied household transitions in ALFWorld and multi-step rollout on SCONE reveal important limitations. Predicted vectors often land near semantically similar states but fail to identify the exact object or state instance, and recursively feeding predicted embeddings back into the transition model leads to rapid error accumulation. These findings suggest that current text embeddings support local one-step state-transition probes, but remain far from stable long-horizon world-state simulation.
+\end{abstract}
+
+\section{Introduction}
+
+Language models are overwhelmingly optimized for next-token prediction. This objective has produced broadly useful representations, but it does not directly ask whether a model understands how states change. If a scene starts as ``a ball is on the table'' and the action is ``the ball is painted red,'' the desired result is not merely the next likely phrase, but the next world state: ``a red ball is on the table.'' This paper asks a simple question: can frozen LLM embedding spaces be used as a substrate for such next-state dynamics?
+
+We formulate next-state prediction as a vector-valued transition problem. Given text descriptions of a current state $s_t$ and action $a_t$, we encode both with a frozen embedding model and train a small transition network $f_\theta$ to predict the embedding of the next state $s_{t+1}$. The model is trained with an InfoNCE retrieval objective, so the predicted vector must be close to the true next-state embedding and far from other next-state candidates. This framing avoids the ambiguity of surface-form text generation while preserving a concrete behavioral evaluation: whether the predicted vector retrieves the correct next state.
+
+Our central modeling choice is a gated residual FiLM transition. Concatenating state and action vectors treats the action as another input feature. Pure FiLM modulation can be too destructive because it scales and shifts every state dimension. We therefore use the action embedding to produce feature-wise scale, shift, and gate parameters, then add a gated modulation update back to the original state:
+\begin{equation}
+  h_{\mathrm{mod}} = h_t + \sigma(\eta(a_t)) \odot (\gamma(a_t) \odot h_t + \beta(a_t)).
+\end{equation}
+This architecture expresses actions as conditional transformations while retaining a direct path for the original state and learning how strongly each dimension should be updated.
+
+We evaluate the method with three embedding families: Qwen3-Embedding-0.6B~\citep{zhang2025qwen3embedding}, bge-large-en-v1.5~\citep{xiao2024cpack}, and e5-large-v2~\citep{wang2022e5}. We begin with controlled synthetic state changes, then move to public datasets covering procedural processes, instructional state changes, embodied household tasks, and physical commonsense stories. The resulting benchmark suite spans attribute changes, location changes, existence changes, possession, containment, heating, cooling, cleaning, opening, and object transformation.
+
+Our contributions are:
+\begin{itemize}
+  \item We introduce next-state vector prediction as a direct test of whether frozen language embedding spaces support action-conditioned world-state dynamics.
+  \item We propose a gated residual FiLM transition model trained with InfoNCE, avoiding both brittle text decoding and destructive action modulation.
+  \item We build a multi-dataset evaluation suite from synthetic data, ProPara, OpenPI-C, SCONE, ALFWorld, and TRIP, including natural-language rewrites for structured state annotations.
+  \item We show that embedding-space transition models can perform well on several public physical-state datasets, while ALFWorld exposes a harder embodied dynamics setting.
+\end{itemize}
+
+\section{Related Work}
+
+\paragraph{State tracking in language.}
+Procedural and commonsense state tracking datasets evaluate whether models can follow how entities change over time. ProPara introduced paragraph-level tracking of entity existence and location in scientific processes~\citep{dalvi2018propara}. OpenPI broadened procedural tracking to open-vocabulary entity, attribute, before-state, and after-state tuples~\citep{tandon2020openpi}; OpenPI-C later cleaned this benchmark and added stronger open-vocabulary state-tracking baselines~\citep{wu2023openpic}. TRIP provides dense intuitive-physics annotations for commonsense stories and evaluates whether model predictions are supported by verifiable physical states~\citep{storks2021trip}. ALFWorld aligns text-based household games with embodied environments, yielding action traces over object locations and physical object properties~\citep{shridhar2021alfworld}. SCONE focuses on context-dependent instruction execution over symbolic worlds such as Alchemy, Scene, and Tangrams~\citep{long2016scone}, with later work studying program learning under denotation-only supervision~\citep{guu2017language}. Most prior uses of these resources cast state tracking as classification, semantic parsing, question answering, plausibility judgment, or text generation. We instead normalize them into a common vector transition format: current state, action sentence, and next state.
+
+\paragraph{Text embeddings and retrieval models.}
+Sentence embedding models turn text into fixed-dimensional vectors for semantic similarity and retrieval~\citep{reimers2019sentencebert}. We evaluate three modern open embedding families. E5 trains text embeddings with weakly supervised contrastive pre-training over large text-pair collections~\citep{wang2022e5}. BGE-large-en-v1.5 is part of the BGE/C-Pack family, which packages large-scale embedding data, benchmarks, and models and reports strong MTEB-style retrieval performance~\citep{xiao2024cpack}. Qwen3-Embedding-0.6B belongs to the Qwen3 Embedding series, which builds embedding and reranking models on top of Qwen3 foundation models with multi-stage training and synthetic data generation~\citep{zhang2025qwen3embedding}. In the later encoder sweep, we additionally evaluate jina-embeddings-v3~\citep{sturua2024jinaembeddingsv3} and all-MiniLM-L6-v2, a Sentence-Transformers model built from a compact MiniLM encoder~\citep{huggingfaceAllMiniLML6V2,wang2020minilm}. These models are usually evaluated by retrieval or semantic similarity; our question is whether their frozen geometries also support action-conditioned movement from one world-state description to another.
+
+\paragraph{Latent dynamics and world models.}
+Learning a transition function in latent space is central to world-model and model-based reinforcement-learning systems. World Models learn compact latent representations and predictive dynamics for control~\citep{ha2018worldmodels}, while Dreamer-style agents learn behaviors through latent imagination~\citep{hafner2020dreamer}. Dynalang brings this idea closer to language by learning a multimodal world model that predicts future text and image representations~\citep{lin2024dynalang}. A parallel line asks whether sequence models trained for next-token or next-move prediction acquire internal world representations, as in Othello-GPT~\citep{li2023othello}. Our work differs by explicitly training a lightweight transition operator over frozen natural-language embedding vectors rather than probing hidden activations or training an environment agent.
+
+\paragraph{Conditional modulation and contrastive prediction.}
+Our transition module is inspired by feature-wise linear modulation, which conditions neural computation through learned per-feature scale and shift parameters~\citep{perez2017film}. We adapt this mechanism to language embedding dynamics by using the action embedding to modulate the state embedding, then adding the original state back as a residual path. The training objective follows contrastive predictive coding, where future representations are predicted with an InfoNCE-style contrastive loss~\citep{oord2018cpc}. In our setting, the positives are frozen embeddings of true next states and the negatives are other next-state candidates in the minibatch.
+
+\section{Task Formulation}
+
+Each example is a triple $(x_t, u_t, x_{t+1})$, where $x_t$ is a natural language description of the current state, $u_t$ is a natural language action or event, and $x_{t+1}$ is the resulting state. A frozen encoder $E$ maps each text to a vector:
+\begin{equation}
+  h_t = E(x_t), \quad a_t = E(u_t), \quad y_t = E(x_{t+1}).
+\end{equation}
+The transition model predicts $\hat{y}_t = f_\theta(h_t, a_t)$. At test time, we rank candidate next-state embeddings by cosine similarity to $\hat{y}_t$. The primary metric is top-$k$ retrieval accuracy: the true next state is correct if its row-level embedding is among the $k$ nearest candidates.
+
+\section{Method}
+
+\subsection{Gated Residual FiLM Transition Model}
+
+Given state embedding $h_t$ and action embedding $a_t$, an action network predicts FiLM and gate parameters:
+\begin{equation}
+  \gamma, \beta, \eta = g_\theta(a_t).
+\end{equation}
+The action-conditioned state representation is:
+\begin{equation}
+  h_{\mathrm{mod}} = h_t + \sigma(\eta) \odot (\gamma \odot h_t + \beta).
+\end{equation}
+A multilayer perceptron maps $h_{\mathrm{mod}}$ to the predicted next-state vector $\hat{y}_t$, followed by $\ell_2$ normalization. The residual term gives the model a stable identity path for unchanged aspects of the state, while the gate lets the action decide how strongly to modify each embedding dimension.
+
+\subsection{InfoNCE Objective}
+
+For a minibatch of $B$ examples, we compute cosine similarities between each prediction $\hat{y}_i$ and each target next-state embedding $y_j$:
+\begin{equation}
+  \ell_i = -\log \frac{\exp(\cos(\hat{y}_i,y_i)/\tau)}
+  {\sum_{j=1}^{B}\exp(\cos(\hat{y}_i,y_j)/\tau)}.
+\end{equation}
+The model is trained to identify the correct next state among in-batch negatives. This objective aligns naturally with retrieval evaluation and does not require a decoder.
+
+\section{Datasets}
+
+Table~\ref{tab:datasets} summarizes the datasets used in the current experimental suite. All datasets are converted into the same JSONL schema with fields \texttt{text\_t}, \texttt{action\_text}, and \texttt{text\_t1}. We globally deduplicate exact triples within each processed dataset, but retain examples that share the same next-state text while differing in the current state, action, entity, or trajectory context. The reported retrieval protocol is therefore row-level rather than duplicate-collapsed.
+
+\begin{table}[t]
+  \centering
+  \caption{Processed next-state datasets. Counts refer to the versions used in our experiments.}
+  \label{tab:datasets}
+  \begin{tabular}{lrrrl}
+    \toprule
+    Dataset & Train & Dev & Test & Notes \\
+    \midrule
+    Synthetic & 6000 & 800 & 1200 & Controlled attributes and relations \\
+    ProPara & 2443 & 309 & 401 & Entity location/existence transitions \\
+    ProPara-DeepSeek & 2443 & 309 & 401 & Natural language state rewrites \\
+    OpenPI-C & 13832 & 1152 & 2030 & WikiHow procedural state changes \\
+    SCONE & 55990 & 3210 & 13670 & Structured world-state transitions \\
+    ALFWorld-noGoto & 18995 & 692 & 637 & Household object-state transitions \\
+    TRIP-known & 2022 & 885 & 887 & Explicit known-to-known physical changes \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\paragraph{Synthetic state changes.}
+We generate controlled state transitions over color, size, material, temperature, switch state, wetness, containment, relative position, and room location. This dataset verifies that the architecture can learn clean compositional transformations.
+
+\paragraph{ProPara~\citep{dalvi2018propara}.}
+We convert entity grids into sentence-level transitions. A compact template version states attributes directly, e.g., ``magma location: volcano.'' We also produce a DeepSeek-rewritten natural-language version, e.g., ``Magma is in a volcano.''
+
+\paragraph{OpenPI-C~\citep{wu2023openpic}.}
+OpenPI-C provides WikiHow state changes such as temperature, wetness, location, and object configuration. We convert each annotated before/after state into a next-state triple using the procedure step as the action.
+
+\paragraph{SCONE~\citep{long2016scone}.}
+SCONE contains context-dependent instruction following tasks over symbolic world states. We rewrite compact world-state strings into more natural descriptions before encoding them, because raw symbolic forms such as color-character sequences are poorly matched to pretrained language embedding spaces.
+
+\paragraph{ALFWorld~\citep{shridhar2021alfworld}.}
+ALFWorld trajectories contain high-level household actions. We convert actions such as pick up, put, clean, heat, cool, slice, and toggle into state transitions. Because navigation dominates full trajectories, we report a no-goto version that removes \texttt{GotoLocation}.
+
+\paragraph{TRIP~\citep{storks2021trip}.}
+TRIP contains dense physical state annotations for commonsense stories. We use the official annotations and keep only known-to-known transitions to avoid noisy ``unknown'' targets.
+
+\section{Experiments}
+
+\subsection{Main Results}
+
+Table~\ref{tab:core-results} reports the three datasets that were run with all six encoders, so models can be compared within the same dataset group. Table~\ref{tab:extended-results} collects the remaining datasets as a separate extension set.
+
+\begin{table}[t]
+  \centering
+  \caption{Core datasets with all six encoders using gated residual FiLM. Values are mean $\pm$ standard deviation over three seeds. Top-$k$ is exact next-state retrieval among test candidates. Bold marks the best Top-1 encoder within each dataset group.}
+  \label{tab:core-results}
+  \tiny
+  \setlength{\tabcolsep}{2pt}
+  \begin{tabular}{llrrrr}
+    \toprule
+    Dataset & Encoder & Cosine & Top-1 & Top-5 & Top-10 \\
+    \midrule
+    OpenPI-C & \textbf{Qwen3-0.6B} & $0.530{\pm}0.003$ & \textbf{$74.73{\pm}0.36$} & $96.47{\pm}0.27$ & $99.08{\pm}0.25$ \\
+    OpenPI-C & Qwen3-Embedding-8B & $0.474{\pm}0.006$ & $69.80{\pm}0.58$ & $95.07{\pm}0.10$ & $98.52{\pm}0.10$ \\
+    OpenPI-C & jina-embeddings-v3 & $0.542{\pm}0.005$ & $69.49{\pm}0.11$ & $95.17{\pm}0.48$ & $98.44{\pm}0.40$ \\
+    OpenPI-C & all-MiniLM-L6-v2 & $0.620{\pm}0.003$ & $68.92{\pm}0.26$ & $94.84{\pm}0.27$ & $98.01{\pm}0.06$ \\
+    OpenPI-C & bge-large & $0.485{\pm}0.001$ & $69.72{\pm}0.50$ & $94.33{\pm}0.43$ & $97.95{\pm}0.10$ \\
+    OpenPI-C & e5-large & $0.329{\pm}0.001$ & $65.58{\pm}1.10$ & $91.48{\pm}0.34$ & $96.11{\pm}0.45$ \\
+    \midrule
+    TRIP-known & Qwen3-0.6B & $0.587{\pm}0.002$ & $67.57{\pm}0.40$ & $92.71{\pm}0.53$ & $95.83{\pm}0.23$ \\
+    TRIP-known & Qwen3-Embedding-8B & $0.525{\pm}0.005$ & $65.99{\pm}1.11$ & $92.48{\pm}0.07$ & $95.87{\pm}0.40$ \\
+    TRIP-known & jina-embeddings-v3 & $0.573{\pm}0.005$ & $67.16{\pm}0.13$ & $92.56{\pm}0.11$ & $95.75{\pm}0.13$ \\
+    TRIP-known & all-MiniLM-L6-v2 & $0.713{\pm}0.001$ & $67.23{\pm}0.85$ & $92.63{\pm}0.46$ & $96.17{\pm}0.60$ \\
+    TRIP-known & bge-large & $0.540{\pm}0.003$ & $67.31{\pm}0.41$ & $92.75{\pm}0.07$ & $96.47{\pm}0.26$ \\
+    TRIP-known & \textbf{e5-large} & $0.407{\pm}0.004$ & \textbf{$68.17{\pm}1.75$} & $92.30{\pm}0.69$ & $95.45{\pm}0.28$ \\
+    \midrule
+    ALFWorld-noGoto & Qwen3-0.6B & $0.567{\pm}0.008$ & $18.89{\pm}0.50$ & $70.23{\pm}0.73$ & $88.23{\pm}0.68$ \\
+    ALFWorld-noGoto & Qwen3-Embedding-8B & $0.559{\pm}0.005$ & $19.20{\pm}1.27$ & $69.02{\pm}0.86$ & $87.39{\pm}0.50$ \\
+    ALFWorld-noGoto & jina-embeddings-v3 & $0.549{\pm}0.004$ & $19.47{\pm}0.94$ & $70.12{\pm}0.89$ & $87.55{\pm}0.74$ \\
+    ALFWorld-noGoto & all-MiniLM-L6-v2 & $0.661{\pm}0.004$ & $20.04{\pm}2.12$ & $69.18{\pm}1.07$ & $87.49{\pm}1.73$ \\
+    ALFWorld-noGoto & \textbf{bge-large} & $0.524{\pm}0.013$ & \textbf{$21.25{\pm}0.24$} & $70.07{\pm}1.00$ & $87.81{\pm}0.89$ \\
+    ALFWorld-noGoto & e5-large & $0.375{\pm}0.002$ & $20.20{\pm}1.22$ & $69.49{\pm}0.59$ & $86.87{\pm}0.71$ \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\subsection{Architecture Ablation}
+
+Table~\ref{tab:architecture-ablation} compares six transition inputs and architectures on the three core public datasets. We report mean top-1 retrieval over three random seeds. FiLM-style modulation improves over concatenation on most dataset--encoder pairs, with the clearest gains on OpenPI-C and TRIP-known. Adding a gate to residual FiLM often helps further, though not uniformly across all encoders. ALFWorld-noGoto remains noisier, and state-only is unexpectedly strong on TRIP-known, suggesting that many known-state transitions can be partially inferred from the current state distribution alone. Action-only is much weaker on OpenPI-C and TRIP-known, confirming that the action alone usually does not identify the next state. On ALFWorld-noGoto, however, action-only becomes more competitive with full transition models, suggesting that some household actions carry strong priors over the resulting object state.
+
+\begin{table}[t]
+  \centering
+  \caption{Architecture ablation on core datasets. Values are top-1 retrieval accuracy, mean $\pm$ standard deviation over three seeds. Bold marks the best full transition model among concat, FiLM, residual FiLM, and gated residual FiLM. State-only and action-only are diagnostic input-prior baselines.}
+  \label{tab:architecture-ablation}
+  \tiny
+  \setlength{\tabcolsep}{1.5pt}
+  \begin{tabular}{llcccccc}
+    \toprule
+    Dataset & Encoder & Concat & FiLM & Residual FiLM & Gated ResFiLM & State-only & Action-only \\
+    \midrule
+    OpenPI-C & Qwen3-Embedding-0.6B & $73.20{\pm}0.52$ & $73.65{\pm}0.45$ & $74.04{\pm}0.60$ & $\mathbf{74.73{\pm}0.36}$ & $72.58{\pm}0.88$ & $8.11{\pm}0.25$ \\
+    OpenPI-C & bge-large-en-v1.5 & $66.29{\pm}2.38$ & $69.18{\pm}1.06$ & $69.52{\pm}0.42$ & $\mathbf{69.72{\pm}0.24}$ & $66.54{\pm}1.28$ & $7.64{\pm}0.21$ \\
+    OpenPI-C & e5-large-v2 & $61.08{\pm}0.34$ & $64.53{\pm}0.47$ & $\mathbf{65.96{\pm}0.25}$ & $65.58{\pm}1.19$ & $62.55{\pm}0.59$ & $6.39{\pm}0.84$ \\
+    \midrule
+    TRIP-known & Qwen3-Embedding-0.6B & $65.69{\pm}0.47$ & $66.89{\pm}1.44$ & $67.98{\pm}0.92$ & $67.57{\pm}1.45$ & $68.21{\pm}0.63$ & $26.79{\pm}0.47$ \\
+    TRIP-known & bge-large-en-v1.5 & $63.25{\pm}1.56$ & $65.46{\pm}1.52$ & $66.67{\pm}1.24$ & $67.31{\pm}1.31$ & $67.53{\pm}0.20$ & $27.21{\pm}0.46$ \\
+    TRIP-known & e5-large-v2 & $63.77{\pm}2.37$ & $66.37{\pm}1.60$ & $67.49{\pm}1.05$ & $\mathbf{68.17{\pm}1.20}$ & $67.16{\pm}0.46$ & $24.28{\pm}0.85$ \\
+    \midrule
+    ALFWorld-noGoto & Qwen3-Embedding-0.6B & $19.78{\pm}1.25$ & $\mathbf{20.88{\pm}0.87}$ & $19.47{\pm}1.65$ & $18.89{\pm}1.09$ & $14.65{\pm}0.77$ & $19.62{\pm}1.50$ \\
+    ALFWorld-noGoto & bge-large-en-v1.5 & $19.88{\pm}2.90$ & $19.41{\pm}1.26$ & $20.30{\pm}0.96$ & $\mathbf{21.25{\pm}0.91}$ & $14.18{\pm}0.24$ & $19.05{\pm}1.46$ \\
+    ALFWorld-noGoto & e5-large-v2 & $19.57{\pm}0.89$ & $19.78{\pm}1.13$ & $19.20{\pm}0.18$ & $\mathbf{20.20{\pm}0.96}$ & $14.55{\pm}0.45$ & $17.53{\pm}1.37$ \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\begin{table}[t]
+  \centering
+  \caption{Extension datasets with the original three encoders using gated residual FiLM. Values are mean $\pm$ standard deviation over three seeds. Bold marks the best Top-1 encoder within each dataset group.}
+  \label{tab:extended-results}
+  \tiny
+  \setlength{\tabcolsep}{2pt}
+  \begin{tabular}{llrrrr}
+    \toprule
+    Dataset & Encoder & Cosine & Top-1 & Top-5 & Top-10 \\
+    \midrule
+    ProPara & Qwen3-0.6B & $0.414{\pm}0.003$ & $34.91{\pm}3.30$ & $80.22{\pm}0.29$ & $90.61{\pm}0.52$ \\
+    ProPara & \textbf{bge-large} & $0.388{\pm}0.004$ & \textbf{$36.66{\pm}1.73$} & $80.22{\pm}2.76$ & $91.44{\pm}0.38$ \\
+    ProPara & e5-large & $0.263{\pm}0.002$ & $33.50{\pm}2.08$ & $77.22{\pm}0.14$ & $88.28{\pm}1.30$ \\
+    \midrule
+    ProPara-DeepSeek & \textbf{Qwen3-0.6B} & $0.427{\pm}0.009$ & \textbf{$41.48{\pm}2.60$} & $81.21{\pm}0.80$ & $92.77{\pm}1.00$ \\
+    ProPara-DeepSeek & bge-large & $0.397{\pm}0.004$ & $37.66{\pm}0.86$ & $78.14{\pm}0.52$ & $92.44{\pm}1.52$ \\
+    ProPara-DeepSeek & e5-large & $0.255{\pm}0.003$ & $35.00{\pm}1.12$ & $74.65{\pm}0.58$ & $85.45{\pm}2.18$ \\
+    \midrule
+    SCONE-full & \textbf{Qwen3-0.6B} & $0.321{\pm}0.006$ & \textbf{$8.81{\pm}4.43$} & $29.53{\pm}12.52$ & $41.05{\pm}14.53$ \\
+    SCONE-full & bge-large & $0.288{\pm}0.005$ & $4.66{\pm}0.76$ & $18.14{\pm}2.11$ & $28.65{\pm}2.64$ \\
+    SCONE-full & e5-large & $0.221{\pm}0.009$ & $2.56{\pm}3.39$ & $9.18{\pm}11.53$ & $14.33{\pm}17.19$ \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\subsection{Autoregressive Multi-Step Rollout}
+
+The preceding experiments evaluate one-step transitions, where each prediction starts from a gold current-state embedding. We additionally test whether the learned transition can be rolled forward without resetting to gold states. In autoregressive rollout, the first step uses the gold initial state and action, while later steps use the previous predicted vector as the next state input. Table~\ref{tab:multistep-rollout} reports final-horizon retrieval after three or five actions. SCONE provides the most stable multi-step estimate because it has thousands of contiguous windows; ALFWorld-noGoto and ProPara-DeepSeek provide smaller but useful trajectory-style checks. Strict three-step TRIP-known filtering leaves only ten windows, so we exclude it from the main multi-step table.
+
+As a diagnostic, we also run a teacher-forced variant on the same windows, where each step receives the gold current-state embedding rather than the previous prediction. Teacher forcing remains much stronger than autoregressive rollout: for Qwen3-Embedding-0.6B on SCONE-full, final top-10 is 42.27\% for three-step teacher forcing versus 7.98\% for three-step autoregressive rollout, and 43.08\% versus 1.22\% for five-step rollout. The same pattern appears on the smaller trajectory sets: bge-large reaches 98.94\% teacher-forced top-10 but 44.09\% autoregressive top-10 on ALFWorld-noGoto, and 93.43\% versus 73.71\% on ProPara-DeepSeek. This gap indicates that local action-conditioned transitions are learnable, but repeated vector predictions quickly drift away from the gold state manifold.
+
+\begin{table}[t]
+  \centering
+  \caption{Autoregressive multi-step rollout with gated residual FiLM. Values are final-horizon top-$k$ retrieval accuracy, mean $\pm$ standard deviation over three seeds.}
+  \label{tab:multistep-rollout}
+  \small
+  \setlength{\tabcolsep}{3.5pt}
+  \begin{tabular}{lrrlrrr}
+    \toprule
+    Dataset & Steps & Windows & Encoder & Top-1 & Top-5 & Top-10 \\
+    \midrule
+    SCONE-full & 3 & 8526 & Qwen3-0.6B & $1.69{\pm}0.93$ & $4.98{\pm}2.85$ & $7.98{\pm}4.56$ \\
+    SCONE-full & 3 & 8526 & bge-large & $0.90{\pm}0.32$ & $1.99{\pm}0.91$ & $3.74{\pm}1.41$ \\
+    SCONE-full & 3 & 8526 & e5-large & $0.34{\pm}0.31$ & $0.58{\pm}0.36$ & $1.17{\pm}0.94$ \\
+    \midrule
+    SCONE-full & 5 & 3382 & Qwen3-0.6B & $0.31{\pm}0.09$ & $0.73{\pm}0.33$ & $1.22{\pm}0.53$ \\
+    SCONE-full & 5 & 3382 & bge-large & $0.28{\pm}0.10$ & $0.37{\pm}0.19$ & $0.67{\pm}0.30$ \\
+    SCONE-full & 5 & 3382 & e5-large & $0.19{\pm}0.10$ & $0.32{\pm}0.18$ & $0.77{\pm}0.47$ \\
+    \midrule
+    ALFWorld-noGoto & 3 & 189 & Qwen3-0.6B & $14.29{\pm}0.00$ & $20.46{\pm}2.50$ & $34.39{\pm}1.91$ \\
+    ALFWorld-noGoto & 3 & 189 & bge-large & $17.46{\pm}1.40$ & $23.46{\pm}2.61$ & $44.09{\pm}2.20$ \\
+    ALFWorld-noGoto & 3 & 189 & e5-large & $12.87{\pm}1.10$ & $17.64{\pm}0.81$ & $29.63{\pm}4.20$ \\
+    \midrule
+    ProPara-DeepSeek & 3 & 71 & Qwen3-0.6B & $14.08{\pm}6.14$ & $45.54{\pm}2.93$ & $69.48{\pm}1.63$ \\
+    ProPara-DeepSeek & 3 & 71 & bge-large & $15.96{\pm}2.15$ & $52.11{\pm}5.08$ & $73.71{\pm}4.30$ \\
+    ProPara-DeepSeek & 3 & 71 & e5-large & $9.86{\pm}1.41$ & $29.58{\pm}2.44$ & $45.07{\pm}8.57$ \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\subsection{Natural Language Rewriting}
+
+ProPara exposes a useful preprocessing question: should structured states be kept as templates or rewritten into natural language? Rewriting improves Qwen3-Embedding-0.6B from 34.91\% to 41.48\% top-1 and improves top-10 from 90.61\% to 92.77\%. The top-1 effect is positive for all three encoders, with bge improving from 36.66\% to 37.66\% and e5 from 33.50\% to 35.00\%. However, top-5 and top-10 do not uniformly improve, suggesting that natural-language rewriting can better match some embedding spaces while introducing surface-form shifts that affect neighborhood structure.
+
+\subsection{Dataset Difficulty}
+
+The same model behaves very differently across datasets. TRIP-known reaches high exact retrieval despite a small training set, likely because state changes are explicit and often map cleanly onto adjective oppositions such as whole/in pieces or present/not present. ALFWorld-noGoto has high top-10 but low top-1, indicating that predictions land near semantically similar states but often fail to identify the exact object/action instance. This is a useful failure mode for future work: embedding geometry captures coarse transition type but blurs fine-grained household entities and repeated object states.
+
+\paragraph{Rollout error accumulation.}
+Multi-step rollout reveals a sharper limitation than one-step retrieval. On SCONE-full, Qwen3-Embedding-0.6B falls from 8.81\% one-step top-1 on all test transitions to 1.69\% after three autoregressive steps and 0.31\% after five. This indicates that the model can learn local vector transitions but does not yet preserve enough state information for reliable long-horizon dynamics.
+
+\section{Analysis}
+
+\paragraph{Which attributes are easy?}
+On TRIP-known, object attributes such as mixed, edible, functional, running, pieces, and location are typically easier than human location. For Qwen3, top-1 reaches 75.0\% on object location, 78.4\% on existence, 81.3\% on functional, 85.7\% on edible, and 92.9\% on mixed, but only 11.5\% on human location. Human movement annotations are often generic, e.g., ``Tom is in one location'' to ``Tom is in a new location,'' creating many near-identical candidates.
+
+\paragraph{Embedding model differences.}
+The best encoder depends on the dataset: Qwen3-Embedding-0.6B is strongest on OpenPI-C, e5-large-v2 is strongest on TRIP-known, and bge-large-en-v1.5 is strongest on ALFWorld-noGoto. Cosine alignment and exact retrieval are related but not identical; for example, all-MiniLM-L6-v2 has high cosine on TRIP-known but does not yield the best top-1 retrieval. These differences matter because the transition model is trained on top of a frozen geometry; the downstream difficulty depends on how each encoder separates fine-grained state descriptions.
+
+\paragraph{Why gated residual FiLM?}
+Our ablations indicate that action-conditioned modulation is useful, but pure modulation risks erasing the original state. The gated residual FiLM design keeps $h_t$ available while allowing action-specific feature shifts and learning the update strength per dimension. This is especially important for next-state prediction, where many aspects of the state remain unchanged.
+
+\section{Limitations}
+
+This is an embedding-space study rather than a full language generation system. Retrieval metrics show whether the predicted vector identifies the correct candidate, but they do not directly measure whether a decoder could verbalize a new unseen state. Some processed datasets rely on templated conversions from structured annotations, and natural-language rewriting can introduce subtle semantic drift. Duplicate or near-duplicate next-state descriptions can also make row-level retrieval conservative, since retrieving an equivalent but different row is still counted as incorrect. Several attribute categories and multi-step trajectory windows have small test counts, so fine-grained breakdowns should be interpreted cautiously. Finally, our rollout experiments cover short horizons only; longer-horizon planning or closed-loop text generation requires separate evaluation.
+
+\section{Conclusion}
+
+We presented next-state vector prediction as a way to test whether frozen LLM embeddings support action-conditioned state dynamics. A lightweight gated residual FiLM model trained with InfoNCE can learn meaningful transitions across procedural, instructional, embodied, and commonsense datasets. The results suggest that LLM embedding spaces encode useful latent structure for physical state change, but also show that exact next-state retrieval remains difficult when many candidate states are semantically close. Moving beyond next-token prediction toward next-state dynamics offers a promising route for evaluating and improving language models as representations of changing worlds.
+
+\bibliographystyle{plainnat}
+\bibliography{references}
+
+\appendix
+
+\section{Reproducibility Details}
+
+\paragraph{Training details.}
+All transition heads are trained on frozen encoder outputs; no embedding model parameters are updated. Unless otherwise stated, we train for at most 30 epochs with early stopping patience 5 on dev cosine similarity. We use AdamW with learning rate $10^{-3}$, weight decay $10^{-4}$, dropout 0.05, hidden dimension 1024, train batch size 256, evaluation batch size 512, embedding batch size 64, and InfoNCE temperature $\tau=0.05$. We run three seeds, 20260504, 20260505, and 20260506, for the official gated residual FiLM results. Embeddings are $\ell_2$-normalized for retrieval evaluation, and top-$k$ metrics rank the predicted vector against all row-level candidate next-state embeddings in the corresponding test split.
+
+\paragraph{Duplicate next states.}
+We remove exact duplicate triples $(x_t,u_t,x_{t+1})$ during preprocessing, but do not collapse examples that share the same next-state text while differing in current state, action, entity, or trajectory context. The official retrieval metric is row-level: the correct item is the original test transition row, and all other test rows, including duplicate or near-duplicate next-state texts, remain candidates. This protocol may introduce false negatives in InfoNCE minibatches and conservative evaluation when another row has the same or equivalent next-state description. We keep this stricter protocol for the reported results and treat duplicate-aware retrieval as future analysis.
+
+\paragraph{Reproducibility package.}
+The experiments can be reproduced from the processed JSONL splits and scripts used to encode frozen embeddings, train the transition heads, and evaluate one-step and multi-step retrieval. The main scripts are the next-state vector prediction trainer and the autoregressive/teacher-forced rollout evaluator; processed files use the common fields \texttt{text\_t}, \texttt{action\_text}, and \texttt{text\_t1}. The official tables are generated from per-seed CSV summaries and then aggregated into mean and standard deviation tables.
+
+\paragraph{Compute resources.}
+Experiments were run on a cloud GPU workstation with an NVIDIA RTX 4090D GPU with 24GB memory, CPU workers, and local SSD storage for embedding caches. Large encoder sweeps were run as independent jobs over dataset--encoder--seed combinations, with embedding caches reused across architecture and rollout evaluations. Once frozen embeddings are cached, each transition-probe run takes roughly 10--100 seconds depending on dataset and encoder; the logged probe-training suites total about 1--2 single-GPU hours. End-to-end reproduction including first-time embedding extraction requires several single-GPU hours. The reported results require substantially less compute than full LLM fine-tuning because all encoders are frozen and only lightweight transition heads are trained.
+
+\section{Asset and Dataset Documentation}
+
+\paragraph{Dataset documentation.}
+All processed examples use the JSONL schema \texttt{text\_t}, \texttt{action\_text}, and \texttt{text\_t1}. Table~\ref{tab:datasets} reports train/dev/test sizes. Section 5 describes the source and conversion procedure for each dataset. The processed splits are derived from public datasets and should be used under the licenses and terms of the original sources. We do not collect new human-subject data.
+
+\begin{table}[h]
+  \centering
+  \caption{Existing assets used in the experiments. License entries reflect the official repository, project page, Hugging Face model card, or dataset card metadata checked for the assets we used.}
+  \label{tab:asset-licenses}
+  \footnotesize
+  \setlength{\tabcolsep}{3pt}
+  \begin{tabular}{p{0.24\linewidth}p{0.22\linewidth}p{0.44\linewidth}}
+    \toprule
+    Asset & Use & License or terms noted \\
+    \midrule
+    ProPara & Source dataset & Apache-2.0 \\
+    OpenPI-C & Source dataset & MIT \\
+    ALFWorld & Source dataset & MIT; dependencies include TextWorld MIT and Fast Downward GPLv3 \\
+    SCONE & Source dataset & CC-BY-SA-4.0 \\
+    TRIP & Source dataset & Not specified in official Hugging Face dataset card or GitHub metadata \\
+    Qwen3-Embedding-0.6B/8B & Frozen encoder & Apache-2.0 \\
+    bge-large-en-v1.5 & Frozen encoder & MIT \\
+    e5-large-v2 / multilingual-e5-large & Frozen encoder & MIT \\
+    jina-embeddings-v3 & Frozen encoder & CC-BY-NC-4.0 \\
+    all-MiniLM-L6-v2 & Frozen encoder & Apache-2.0 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+For assets whose license is not clearly specified in the checked public metadata, we use them only for research evaluation in this submission and will verify redistribution permissions before releasing processed derivative files.
+
+\section{Broader Impacts}
+
+This work is primarily an evaluation and modeling study of frozen language embeddings for state transition prediction. A positive impact is that it may provide a more direct way to evaluate whether language representations encode changes in the world, which could improve diagnostics for procedural reasoning, instruction following, and embodied language systems. Potential negative impacts are indirect: better state tracking could be incorporated into systems that plan or monitor actions, and errors in predicted state dynamics could be harmful if used without verification in high-stakes settings. We therefore frame the method as a retrieval-based research benchmark rather than a deployment-ready decision system.
+
+\input{checklist}
+
+\end{document}

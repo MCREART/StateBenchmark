@@ -1,0 +1,208 @@
+{
+  "train": {
+    "rows": 13832,
+    "unique_triples": 13832,
+    "attributes": 497,
+    "top_attributes": [
+      [
+        "location",
+        2830
+      ],
+      [
+        "state",
+        2184
+      ],
+      [
+        "temperature",
+        953
+      ],
+      [
+        "cleanness",
+        706
+      ],
+      [
+        "weight",
+        681
+      ],
+      [
+        "composition",
+        512
+      ],
+      [
+        "moisture",
+        452
+      ],
+      [
+        "wetness",
+        376
+      ],
+      [
+        "volume",
+        357
+      ],
+      [
+        "shape",
+        355
+      ],
+      [
+        "fullness",
+        333
+      ],
+      [
+        "texture",
+        328
+      ],
+      [
+        "size",
+        175
+      ],
+      [
+        "orientation",
+        171
+      ],
+      [
+        "organization",
+        150
+      ]
+    ],
+    "tasks": 539
+  },
+  "dev": {
+    "rows": 1152,
+    "unique_triples": 1152,
+    "attributes": 105,
+    "top_attributes": [
+      [
+        "location",
+        228
+      ],
+      [
+        "state",
+        176
+      ],
+      [
+        "temperature",
+        93
+      ],
+      [
+        "cleanness",
+        77
+      ],
+      [
+        "weight",
+        54
+      ],
+      [
+        "shape",
+        45
+      ],
+      [
+        "wetness",
+        40
+      ],
+      [
+        "composition",
+        39
+      ],
+      [
+        "volume",
+        28
+      ],
+      [
+        "texture",
+        26
+      ],
+      [
+        "moisture",
+        26
+      ],
+      [
+        "fullness",
+        23
+      ],
+      [
+        "size",
+        18
+      ],
+      [
+        "container",
+        18
+      ],
+      [
+        "availability",
+        18
+      ]
+    ],
+    "tasks": 50
+  },
+  "test": {
+    "rows": 2030,
+    "unique_triples": 2030,
+    "attributes": 197,
+    "top_attributes": [
+      [
+        "location",
+        454
+      ],
+      [
+        "state",
+        296
+      ],
+      [
+        "temperature",
+        124
+      ],
+      [
+        "cleanness",
+        88
+      ],
+      [
+        "volume",
+        83
+      ],
+      [
+        "weight",
+        68
+      ],
+      [
+        "moisture",
+        65
+      ],
+      [
+        "composition",
+        62
+      ],
+      [
+        "position",
+        56
+      ],
+      [
+        "wetness",
+        47
+      ],
+      [
+        "fullness",
+        40
+      ],
+      [
+        "texture",
+        38
+      ],
+      [
+        "shape",
+        38
+      ],
+      [
+        "container",
+        28
+      ],
+      [
+        "knowledge",
+        27
+      ]
+    ],
+    "tasks": 74
+  },
+  "duplicates_removed_within_split": 13,
+  "unique_triples_all_splits": 17014
+}

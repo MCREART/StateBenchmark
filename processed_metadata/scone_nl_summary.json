@@ -1,0 +1,23 @@
+{
+  "num_rows_by_split": {
+    "train": 55990,
+    "dev": 3210,
+    "test": 13670
+  },
+  "num_rows_by_domain": {
+    "alchemy": 24005,
+    "scene": 22925,
+    "tangrams": 25940
+  },
+  "num_rows_by_split_domain": {
+    "dev/alchemy": 1225,
+    "test/alchemy": 4495,
+    "train/alchemy": 18285,
+    "dev/scene": 990,
+    "test/scene": 5175,
+    "train/scene": 16760,
+    "dev/tangrams": 995,
+    "test/tangrams": 4000,
+    "train/tangrams": 20945
+  }
+}

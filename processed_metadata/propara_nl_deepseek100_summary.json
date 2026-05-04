@@ -1,0 +1,12 @@
+{
+  "source": "processed_datasets/propara_nl_changed",
+  "model": "deepseek-v4-flash",
+  "requested_train_rows": 1,
+  "rewritten_train_rows": 1,
+  "failed_rows": 0,
+  "failures": [],
+  "output_train_rows": 1,
+  "concurrency": 1,
+  "smoke_test": true,
+  "note": "Only state_t/text_t1 were rewritten for first N train rows; actions and dev/test copied unchanged."
+}

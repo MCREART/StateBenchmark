@@ -1,0 +1,39 @@
+{
+  "changed_only": true,
+  "train": {
+    "rows": 2443,
+    "paragraphs": 391,
+    "participants": 1363,
+    "skipped_unchanged": 7896,
+    "transition_types": {
+      "moved": 646,
+      "destroyed": 372,
+      "unknown_location_change": 854,
+      "created": 571
+    }
+  },
+  "dev": {
+    "rows": 309,
+    "paragraphs": 43,
+    "participants": 165,
+    "skipped_unchanged": 894,
+    "transition_types": {
+      "unknown_location_change": 105,
+      "moved": 82,
+      "destroyed": 53,
+      "created": 69
+    }
+  },
+  "test": {
+    "rows": 401,
+    "paragraphs": 54,
+    "participants": 215,
+    "skipped_unchanged": 1273,
+    "transition_types": {
+      "moved": 101,
+      "unknown_location_change": 99,
+      "destroyed": 98,
+      "created": 103
+    }
+  }
+}
