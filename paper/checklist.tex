@@ -178,7 +178,7 @@
 \item {\bf New assets}
     \item[] Question: Are new assets introduced in the paper well documented and is the documentation provided alongside the assets?
     \item[] Answer: \answerYes{}.
-    \item[] Justification: Appendix B documents the processed JSONL schema, split sizes, source datasets, conversion procedures, and human-subject status for the processed benchmark splits. The processed splits are derived from public datasets and should be used under the original source licenses and terms.
+    \item[] Justification: Appendix B documents the JSONL schema, split sizes, source datasets, conversion procedures, and human-subject status for the benchmark construction. The released assets include conversion scripts, split metadata, configuration files, evaluation scripts, and result summaries. Full processed derivative splits are not bundled when redistribution permissions are unclear or heterogeneous; instead, they can be regenerated from the public source datasets using the provided scripts and should be used under the original source licenses and terms.
     \item[] Guidelines:
     \begin{itemize}
         \item The answer \answerNA{} means that the paper does not release new assets.
@@ -214,7 +214,7 @@
     \item[] Question: Does the paper describe the usage of LLMs if it is an important, original, or non-standard component of the core methods in this research? Note that if the LLM is used only for writing, editing, or formatting purposes and does \emph{not} impact the core methodology, scientific rigor, or originality of the research, declaration is not required.
     %this research? 
     \item[] Answer: \answerYes{}.
-    \item[] Justification: LLMs are central to the research because the method evaluates frozen LLM embedding models, and ProPara-DeepSeek includes LLM-based natural-language rewriting. These uses are described in the method, dataset, and experiment sections.
+    \item[] Justification: LLMs are relevant to the research because the study evaluates text embedding models, including LLM-derived embedding models such as Qwen3-Embedding, and uses LLM-based natural-language rewriting in ProPara-DeepSeek. These uses are described in the method, dataset, and experiment sections.
     \item[] Guidelines:
     \begin{itemize}
         \item The answer \answerNA{} means that the core method development in this research does not involve LLMs as any important, original, or non-standard components.
