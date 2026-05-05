@@ -10,6 +10,7 @@
 \usepackage{amsmath}
 \usepackage{xcolor}
 \usepackage{graphicx}
+\usepackage{flafter}
 
 \title{Beyond Next-Token: Evaluating LLM Embeddings for Next-State Dynamics}
 
@@ -105,10 +106,10 @@ The model is trained to identify the correct next state among in-batch negatives
 
 Table~\ref{tab:datasets} summarizes the datasets used in the current experimental suite. All datasets are converted into the same JSONL schema with fields \texttt{text\_t}, \texttt{action\_text}, and \texttt{text\_t1}. We globally deduplicate exact triples within each processed dataset, but retain examples that share the same next-state text while differing in the current state, action, entity, or trajectory context. The reported retrieval protocol is therefore row-level rather than duplicate-collapsed.
 
-\begin{table}[t]
+\begin{table}[!htbp]
   \centering
-  \caption{Processed next-state datasets. Counts refer to the versions used in our experiments.}
-  \label{tab:datasets}
+  \small
+  \setlength{\tabcolsep}{3.5pt}
   \begin{tabular}{lrrrl}
     \toprule
     Dataset & Train & Dev & Test & Notes \\
@@ -122,25 +123,13 @@ Table~\ref{tab:datasets} summarizes the datasets used in the current experimenta
     TRIP-known & 2022 & 885 & 887 & Explicit known-to-known physical changes \\
     \bottomrule
   \end{tabular}
+  \caption{Processed next-state datasets. Counts refer to the versions used in our experiments.}
+  \label{tab:datasets}
 \end{table}
 
-\paragraph{Synthetic state changes.}
-We generate controlled state transitions over color, size, material, temperature, switch state, wetness, containment, relative position, and room location. This dataset verifies that the architecture can learn clean compositional transformations.
+The synthetic split covers controlled color, size, material, temperature, switch state, wetness, containment, relative position, and room-location changes. ProPara~\citep{dalvi2018propara} is converted from entity grids into sentence-level location/existence transitions; we keep a compact template version and a DeepSeek-rewritten natural-language version. OpenPI-C~\citep{wu2023openpic} provides WikiHow before/after state changes, which we pair with the corresponding procedure step as the action.
 
-\paragraph{ProPara~\citep{dalvi2018propara}.}
-We convert entity grids into sentence-level transitions. A compact template version states attributes directly, e.g., ``magma location: volcano.'' We also produce a DeepSeek-rewritten natural-language version, e.g., ``Magma is in a volcano.''
-
-\paragraph{OpenPI-C~\citep{wu2023openpic}.}
-OpenPI-C provides WikiHow state changes such as temperature, wetness, location, and object configuration. We convert each annotated before/after state into a next-state triple using the procedure step as the action.
-
-\paragraph{SCONE~\citep{long2016scone}.}
-SCONE contains context-dependent instruction following tasks over symbolic world states. We rewrite compact world-state strings into more natural descriptions before encoding them, because raw symbolic forms such as color-character sequences are poorly matched to pretrained language embedding spaces.
-
-\paragraph{ALFWorld~\citep{shridhar2021alfworld}.}
-ALFWorld trajectories contain high-level household actions. We convert actions such as pick up, put, clean, heat, cool, slice, and toggle into state transitions. Because navigation dominates full trajectories, we report a no-goto version that removes \texttt{GotoLocation}.
-
-\paragraph{TRIP~\citep{storks2021trip}.}
-TRIP contains dense physical state annotations for commonsense stories. We use the official annotations and keep only known-to-known transitions to avoid noisy ``unknown'' targets.
+SCONE~\citep{long2016scone} contains symbolic world-state transitions; we rewrite compact world strings into more natural descriptions before encoding them. ALFWorld~\citep{shridhar2021alfworld} contributes household actions such as pick up, put, clean, heat, cool, slice, and toggle; we remove navigation-heavy \texttt{GotoLocation} actions. TRIP~\citep{storks2021trip} contributes physical state annotations from commonsense stories, and we keep only known-to-known transitions to avoid noisy ``unknown'' targets.
 
 \section{Experiments}
 
@@ -152,8 +141,6 @@ Across the core datasets, one-step retrieval is substantially above chance, but 
 
 \begin{table}[t]
   \centering
-  \caption{Core datasets with all six encoders using gated residual FiLM. Values are mean $\pm$ standard deviation over three seeds. Top-$k$ is exact next-state retrieval among test candidates. Bold marks the best Top-1 encoder within each dataset group.}
-  \label{tab:core-results}
   \tiny
   \setlength{\tabcolsep}{2pt}
   \begin{tabular}{llrrrr}
@@ -182,6 +169,8 @@ Across the core datasets, one-step retrieval is substantially above chance, but 
     ALFWorld-noGoto & e5-large & $0.375{\pm}0.002$ & $20.20{\pm}1.22$ & $69.49{\pm}0.59$ & $86.87{\pm}0.71$ \\
     \bottomrule
   \end{tabular}
+  \caption{Core datasets with all six encoders using gated residual FiLM. Values are mean $\pm$ standard deviation over three seeds. Top-$k$ is exact next-state retrieval among test candidates. Bold marks the best Top-1 encoder within each dataset group.}
+  \label{tab:core-results}
 \end{table}
 
 \subsection{Architecture Ablation}
@@ -197,8 +186,6 @@ Figure~\ref{fig:architecture-ablation} visualizes the averaged architecture tren
 
 \begin{table}[t]
   \centering
-  \caption{Architecture ablation on core datasets. Values are top-1 retrieval accuracy, mean $\pm$ standard deviation over three seeds. Bold marks the best full transition model among concat, FiLM, residual FiLM, and gated residual FiLM. State-only and action-only are diagnostic input-prior baselines.}
-  \label{tab:architecture-ablation}
   \tiny
   \setlength{\tabcolsep}{1.5pt}
   \begin{tabular}{llcccccc}
@@ -218,12 +205,12 @@ Figure~\ref{fig:architecture-ablation} visualizes the averaged architecture tren
     ALFWorld-noGoto & e5-large-v2 & $19.57{\pm}0.89$ & $19.78{\pm}1.13$ & $19.20{\pm}0.18$ & $\mathbf{20.20{\pm}0.96}$ & $14.55{\pm}0.45$ & $17.53{\pm}1.37$ \\
     \bottomrule
   \end{tabular}
+  \caption{Architecture ablation on core datasets. Values are top-1 retrieval accuracy, mean $\pm$ standard deviation over three seeds. Bold marks the best full transition model among concat, FiLM, residual FiLM, and gated residual FiLM. State-only and action-only are diagnostic input-prior baselines.}
+  \label{tab:architecture-ablation}
 \end{table}
 
 \begin{table}[t]
   \centering
-  \caption{Extension datasets with the original three encoders using gated residual FiLM. Values are mean $\pm$ standard deviation over three seeds. Bold marks the best Top-1 encoder within each dataset group.}
-  \label{tab:extended-results}
   \tiny
   \setlength{\tabcolsep}{2pt}
   \begin{tabular}{llrrrr}
@@ -243,6 +230,8 @@ Figure~\ref{fig:architecture-ablation} visualizes the averaged architecture tren
     SCONE-full & e5-large & $0.221{\pm}0.009$ & $2.56{\pm}3.39$ & $9.18{\pm}11.53$ & $14.33{\pm}17.19$ \\
     \bottomrule
   \end{tabular}
+  \caption{Extension datasets with the original three encoders using gated residual FiLM. Values are mean $\pm$ standard deviation over three seeds. Bold marks the best Top-1 encoder within each dataset group.}
+  \label{tab:extended-results}
 \end{table}
 
 \subsection{Autoregressive Multi-Step Rollout}
@@ -260,8 +249,6 @@ As a diagnostic, we also run a teacher-forced variant on the same windows, where
 
 \begin{table}[t]
   \centering
-  \caption{Autoregressive multi-step rollout with gated residual FiLM. Values are final-horizon top-$k$ retrieval accuracy, mean $\pm$ standard deviation over three seeds.}
-  \label{tab:multistep-rollout}
   \small
   \setlength{\tabcolsep}{3.5pt}
   \begin{tabular}{lrrlrrr}
@@ -285,6 +272,8 @@ As a diagnostic, we also run a teacher-forced variant on the same windows, where
     ProPara-DeepSeek & 3 & 71 & e5-large & $9.86{\pm}1.41$ & $29.58{\pm}2.44$ & $45.07{\pm}8.57$ \\
     \bottomrule
   \end{tabular}
+  \caption{Autoregressive multi-step rollout with gated residual FiLM. Values are final-horizon top-$k$ retrieval accuracy, mean $\pm$ standard deviation over three seeds.}
+  \label{tab:multistep-rollout}
 \end{table}
 
 \subsection{Natural Language Rewriting}
@@ -343,8 +332,6 @@ All processed examples use the JSONL schema \texttt{text\_t}, \texttt{action\_te
 
 \begin{table}[h]
   \centering
-  \caption{Existing assets used in the experiments. License entries reflect the official repository, project page, Hugging Face model card, or dataset card metadata checked for the assets we used.}
-  \label{tab:asset-licenses}
   \footnotesize
   \setlength{\tabcolsep}{3pt}
   \begin{tabular}{p{0.24\linewidth}p{0.22\linewidth}p{0.44\linewidth}}
@@ -363,6 +350,8 @@ All processed examples use the JSONL schema \texttt{text\_t}, \texttt{action\_te
     all-MiniLM-L6-v2 & Frozen encoder & Apache-2.0 \\
     \bottomrule
   \end{tabular}
+  \caption{Existing assets used in the experiments. License entries reflect the official repository, project page, Hugging Face model card, or dataset card metadata checked for the assets we used.}
+  \label{tab:asset-licenses}
 \end{table}
 
 For assets whose license is not clearly specified in the checked public metadata, we use them only for research evaluation in this submission and will verify redistribution permissions before releasing processed derivative files.
