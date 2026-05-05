@@ -9,6 +9,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import re
 
 
 class NextStateVectorGatedResidualFiLM(nn.Module):
@@ -39,17 +40,42 @@ def normalize(x):
     return x / np.maximum(np.linalg.norm(x, axis=1, keepdims=True), 1e-8)
 
 
-def batched_ranks(pred, candidates, target_indices, batch_size):
+def normalize_next_text(text):
+    return re.sub(r"\s+", " ", str(text).strip().lower())
+
+
+def next_text_group_ids(texts):
+    group_by_text = {}
+    ids = []
+    for text in texts:
+        key = normalize_next_text(text)
+        if key not in group_by_text:
+            group_by_text[key] = len(group_by_text)
+        ids.append(group_by_text[key])
+    return np.asarray(ids, dtype=np.int64)
+
+
+def batched_ranks(pred, candidates, target_indices, batch_size, candidate_groups=None):
     pred = normalize(pred.astype(np.float32, copy=False))
     candidates = normalize(candidates.astype(np.float32, copy=False))
     ranks = np.empty(pred.shape[0], dtype=np.int32)
+    row_ranks = np.empty(pred.shape[0], dtype=np.int32)
     target_indices = np.asarray(target_indices, dtype=np.int64)
+    candidate_groups = np.asarray(candidate_groups, dtype=np.int64) if candidate_groups is not None else None
     for start in range(0, pred.shape[0], batch_size):
         end = min(start + batch_size, pred.shape[0])
         sims = pred[start:end] @ candidates.T
         target_scores = sims[np.arange(end - start), target_indices[start:end]]
-        ranks[start:end] = (sims > target_scores[:, None]).sum(axis=1) + 1
-    return ranks
+        row_ranks[start:end] = (sims > target_scores[:, None]).sum(axis=1) + 1
+        if candidate_groups is None:
+            ranks[start:end] = row_ranks[start:end]
+        else:
+            target_groups = candidate_groups[target_indices[start:end]]
+            for offset, group in enumerate(target_groups):
+                same = candidate_groups == group
+                best_equivalent_score = sims[offset, same].max()
+                ranks[start + offset] = int((sims[offset] > best_equivalent_score).sum()) + 1
+    return ranks, row_ranks
 
 
 def summarize_ranks(ranks):
@@ -127,6 +153,9 @@ def main():
     z_next = emb["z_next"].astype(np.float32)
 
     rows = load_jsonl(args.jsonl)
+    row_by_id = {str(row["id"]): row for row in rows}
+    next_texts = [row_by_id[str(item_id)]["text_t1"] for item_id in ids]
+    candidate_groups = next_text_group_ids(next_texts)
     by_source = group_and_sort(rows, args.schema)
 
     windows = []
@@ -175,33 +204,41 @@ def main():
     for h in range(args.steps):
         pred = np.concatenate(horizon_preds[h], axis=0)
         targets = np.asarray(horizon_targets[h], dtype=np.int64)
-        ranks = batched_ranks(pred, z_next, targets, args.rank_batch_size)
+        ranks, row_ranks = batched_ranks(pred, z_next, targets, args.rank_batch_size, candidate_groups)
         metrics = summarize_ranks(ranks)
+        row_metrics = {f"row_{key}": value for key, value in summarize_ranks(row_ranks).items()}
         summary_rows.append({
             "scope": "all",
             "horizon": h + 1,
             "n": len(ranks),
             **metrics,
+            **row_metrics,
         })
         if h == args.steps - 1:
-            for i, rank in enumerate(ranks.tolist()):
+            for i, (rank, row_rank) in enumerate(zip(ranks.tolist(), row_ranks.tolist())):
                 detailed.append({
                     "start_id": start_ids[i],
                     "final_id": final_ids[i],
                     "domain": domains[i],
                     "rank": rank,
+                    "row_rank": row_rank,
                     "top1": int(rank <= 1),
                     "top5": int(rank <= 5),
                     "top10": int(rank <= 10),
+                    "row_top1": int(row_rank <= 1),
+                    "row_top5": int(row_rank <= 5),
+                    "row_top10": int(row_rank <= 10),
                 })
         for domain in sorted(set(domains.tolist())):
             mask = domains == domain
             dm = summarize_ranks(ranks[mask])
+            row_dm = {f"row_{key}": value for key, value in summarize_ranks(row_ranks[mask]).items()}
             summary_rows.append({
                 "scope": f"domain:{domain}",
                 "horizon": h + 1,
                 "n": int(mask.sum()),
                 **dm,
+                **row_dm,
             })
 
     summary_path = out_dir / f"{args.dataset_name}_autoregressive_rollout_{args.steps}step_summary.csv"
