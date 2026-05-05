@@ -131,6 +131,29 @@ The synthetic split covers controlled color, size, material, temperature, switch
 
 SCONE~\citep{long2016scone} contains symbolic world-state transitions; we rewrite compact world strings into more natural descriptions before encoding them. ALFWorld~\citep{shridhar2021alfworld} contributes household actions such as pick up, put, clean, heat, cool, slice, and toggle; we remove navigation-heavy \texttt{GotoLocation} actions. TRIP~\citep{storks2021trip} contributes physical state annotations from commonsense stories, and we keep only known-to-known transitions to avoid noisy ``unknown'' targets.
 
+Table~\ref{tab:dataset-examples} shows representative converted examples. The conversion is intentionally lightweight: each source resource is mapped into the same current-state, action, next-state interface while preserving the type of state change originally annotated by the dataset.
+
+\begin{table}[!htbp]
+  \centering
+  \scriptsize
+  \setlength{\tabcolsep}{2pt}
+  \renewcommand{\arraystretch}{1.08}
+  \begin{tabular}{p{0.15\linewidth}p{0.26\linewidth}p{0.25\linewidth}p{0.26\linewidth}}
+    \toprule
+    Dataset & Current state $x_t$ & Action $u_t$ & Next state $x_{t+1}$ \\
+    \midrule
+    Synthetic & A green coin is on the workbench. & Paint the coin black. & A black coin is on the workbench. \\
+    ProPara-DeepSeek & The location of the animal's skeleton is unknown. & The animal's skeleton sinks to the bottom of an ocean. & The animal's skeleton is at the bottom of an ocean. \\
+    OpenPI-C & Before the step, the temperature of mixture is cool. & In the task ``Make Ful Medames,'' perform this step: Serve hot. & After the step, the temperature of mixture is hot. \\
+    SCONE & The tangram board is ordered from left to right. Position 1 has shape 1; position 2 has shape 4; position 3 has shape 0; position 4 has shape 3; position 5 has shape 2. & Switch 1st and 3rd figures. & The tangram board is ordered from left to right. Position 1 has shape 0; position 2 has shape 4; position 3 has shape 1; position 4 has shape 3; position 5 has shape 2. \\
+    ALFWorld-noGoto & The lettuce is not clean. The agent is holding the lettuce. & Wash the lettuce slice in the sink and then remove it. & The lettuce is clean. The agent is holding the lettuce. \\
+    TRIP-known & The pre-made breakfast sandwich is inside a container. & Tom opened the fridge and grabbed a pre-made breakfast sandwich. & The pre-made breakfast sandwich is out of a container. \\
+    \bottomrule
+  \end{tabular}
+  \caption{Representative examples after conversion into the unified next-state schema. The synthetic example is shown in English for readability.}
+  \label{tab:dataset-examples}
+\end{table}
+
 \section{Experiments}
 
 \subsection{Main Results}
