@@ -674,25 +674,36 @@ def masked_infonce_loss(logits, labels, next_text_groups, policy):
     return F.cross_entropy(masked_logits, labels)
 
 
-def retrieval_metrics(pred, true, topks=(1, 5, 10)):
+def retrieval_metrics(pred, true, topks=(1, 5, 10), target_texts=None):
     pred = pred / np.maximum(np.linalg.norm(pred, axis=1, keepdims=True), 1e-8)
     true = true / np.maximum(np.linalg.norm(true, axis=1, keepdims=True), 1e-8)
     sims = pred @ true.T
     ranks = np.argsort(-sims, axis=1)
     out = {}
     target = np.arange(true.shape[0])
+    target_groups = None
+    if target_texts is not None:
+        target_groups = next_text_group_ids(target_texts)
     for k in topks:
-        out[f"retrieval_top{k}"] = float(np.mean([target[i] in ranks[i, :k] for i in range(true.shape[0])]))
+        row_hits = np.asarray([target[i] in ranks[i, :k] for i in range(true.shape[0])], dtype=bool)
+        out[f"row_retrieval_top{k}"] = float(np.mean(row_hits))
+        if target_groups is None:
+            out[f"retrieval_top{k}"] = float(np.mean(row_hits))
+        else:
+            group_hits = np.asarray([
+                target_groups[i] in target_groups[ranks[i, :k]] for i in range(true.shape[0])
+            ], dtype=bool)
+            out[f"retrieval_top{k}"] = float(np.mean(group_hits))
     out["mean_target_rank"] = float(np.mean([int(np.where(ranks[i] == i)[0][0]) + 1 for i in range(true.shape[0])]))
     return out, sims
 
 
-def evaluate(pred, true):
+def evaluate(pred, true, target_texts=None):
     pred_n = pred / np.maximum(np.linalg.norm(pred, axis=1, keepdims=True), 1e-8)
     true_n = true / np.maximum(np.linalg.norm(true, axis=1, keepdims=True), 1e-8)
     cos = np.sum(pred_n * true_n, axis=1)
     mse = np.mean((pred_n - true_n) ** 2, axis=1)
-    ret, _ = retrieval_metrics(pred_n, true_n)
+    ret, _ = retrieval_metrics(pred_n, true_n, target_texts=target_texts)
     out = {
         "cosine_mean": float(cos.mean()),
         "cosine_median": float(np.median(cos)),
@@ -703,14 +714,16 @@ def evaluate(pred, true):
     return out, cos
 
 
-def split_metrics(pred, true, labels):
+def split_metrics(pred, true, labels, target_texts=None):
     metrics = {}
     labels = np.asarray(labels).astype(str)
+    target_texts = np.asarray(target_texts) if target_texts is not None else None
     for label in sorted(set(labels.tolist())):
         mask = labels == label
         if int(mask.sum()) == 0:
             continue
-        m, _ = evaluate(pred[mask], true[mask])
+        split_texts = target_texts[mask] if target_texts is not None else None
+        m, _ = evaluate(pred[mask], true[mask], split_texts)
         m["n"] = int(mask.sum())
         metrics[label] = m
     return metrics
@@ -767,7 +780,7 @@ def train_one(model_cfg, args):
             total_loss += float(loss.item()) * z_t.size(0)
             seen += z_t.size(0)
         dev_pred, dev_true = predict_vectors(model, dev_loader, device)
-        dev_metrics, _ = evaluate(dev_pred, dev_true)
+        dev_metrics, _ = evaluate(dev_pred, dev_true, dev["text_t1"])
         dev_cos = dev_metrics["cosine_mean"]
         print(f"{name} epoch={epoch} loss={total_loss/seen:.6f} dev_cos={dev_cos:.4f} dev_top1={dev_metrics['retrieval_top1']:.4f}", flush=True)
         if dev_cos > best_dev_cos:
@@ -783,11 +796,11 @@ def train_one(model_cfg, args):
     model.load_state_dict(best_state)
     dev_pred, dev_true = predict_vectors(model, dev_loader, device)
     test_pred, test_true = predict_vectors(model, test_loader, device)
-    dev_metrics, _ = evaluate(dev_pred, dev_true)
-    test_metrics, test_cos = evaluate(test_pred, test_true)
+    dev_metrics, _ = evaluate(dev_pred, dev_true, dev["text_t1"])
+    test_metrics, test_cos = evaluate(test_pred, test_true, test["text_t1"])
 
-    by_range = split_metrics(test_pred, test_true, test["ranges"])
-    by_transition = split_metrics(test_pred, test_true, test["transition_types"])
+    by_range = split_metrics(test_pred, test_true, test["ranges"], test["text_t1"])
+    by_transition = split_metrics(test_pred, test_true, test["transition_types"], test["text_t1"])
 
     RUN_DIR.mkdir(parents=True, exist_ok=True)
     model_file = RUN_DIR / f"{safe_name(name)}_next_state_vector.pt"
@@ -821,13 +834,14 @@ def train_one(model_cfg, args):
     pred_file = RUN_DIR / f"{safe_name(name)}_next_state_vector_predictions_test.csv"
     nn = test_pred @ (test_true / np.maximum(np.linalg.norm(test_true, axis=1, keepdims=True), 1e-8)).T
     nearest = np.argmax(nn, axis=1)
+    test_groups = next_text_group_ids(test["text_t1"])
     num_prediction_rows = test_pred.shape[0]
     if args.max_prediction_rows is not None:
         num_prediction_rows = min(num_prediction_rows, args.max_prediction_rows)
     with pred_file.open("w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=[
             "id", "range", "transition_type", "state_t", "action", "true_state_t1",
-            "nearest_state_t1", "cosine_true", "nearest_is_exact_row",
+            "nearest_state_t1", "cosine_true", "nearest_is_exact_row", "nearest_is_same_next_state",
         ])
         writer.writeheader()
         for i in range(num_prediction_rows):
@@ -841,6 +855,7 @@ def train_one(model_cfg, args):
                 "nearest_state_t1": str(test["text_t1"][nearest[i]]),
                 "cosine_true": float(test_cos[i]),
                 "nearest_is_exact_row": bool(nearest[i] == i),
+                "nearest_is_same_next_state": bool(test_groups[nearest[i]] == test_groups[i]),
             })
 
     print(f"wrote {metrics_file}")
@@ -860,6 +875,7 @@ def write_summary(all_metrics):
             "false_negative_mask",
             "test_cosine_mean", "test_cosine_median", "test_retrieval_top1",
             "test_retrieval_top5", "test_retrieval_top10", "test_mean_target_rank",
+            "test_row_retrieval_top1", "test_row_retrieval_top5", "test_row_retrieval_top10",
             "attribute_cosine_mean", "attribute_top1", "relation_cosine_mean", "relation_top1",
         ]
         writer = csv.DictWriter(f, fieldnames=fields)
@@ -881,6 +897,9 @@ def write_summary(all_metrics):
                 "test_retrieval_top5": m["test"]["retrieval_top5"],
                 "test_retrieval_top10": m["test"]["retrieval_top10"],
                 "test_mean_target_rank": m["test"]["mean_target_rank"],
+                "test_row_retrieval_top1": m["test"].get("row_retrieval_top1"),
+                "test_row_retrieval_top5": m["test"].get("row_retrieval_top5"),
+                "test_row_retrieval_top10": m["test"].get("row_retrieval_top10"),
                 "attribute_cosine_mean": attr.get("cosine_mean"),
                 "attribute_top1": attr.get("retrieval_top1"),
                 "relation_cosine_mean": rel.get("cosine_mean"),
