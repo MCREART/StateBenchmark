@@ -68,6 +68,21 @@ def safe_name(name):
     return re.sub(r"[^A-Za-z0-9_.-]+", "_", name)
 
 
+def normalize_next_text(text):
+    return re.sub(r"\s+", " ", str(text).strip().lower())
+
+
+def next_text_group_ids(texts):
+    group_by_text = {}
+    ids = []
+    for text in texts:
+        key = normalize_next_text(text)
+        if key not in group_by_text:
+            group_by_text[key] = len(group_by_text)
+        ids.append(group_by_text[key])
+    return np.asarray(ids, dtype=np.int64)
+
+
 def log_error(label, exc):
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     with ERROR_LOG.open("a", encoding="utf-8") as f:
@@ -624,10 +639,13 @@ class NextStateVectorPairGatedResidual(nn.Module):
         return self.output(modulated)
 
 
-def make_loader(data, batch_size, shuffle):
+def make_loader(data, batch_size, shuffle, include_next_text_groups=False):
     x1 = torch.from_numpy(np.asarray(data["z_t"], dtype=np.float32))
     x2 = torch.from_numpy(np.asarray(data["z_action"], dtype=np.float32))
     y = torch.from_numpy(np.asarray(data["z_next"], dtype=np.float32))
+    if include_next_text_groups:
+        groups = torch.from_numpy(next_text_group_ids(data["text_t1"]))
+        return DataLoader(TensorDataset(x1, x2, y, groups), batch_size=batch_size, shuffle=shuffle)
     return DataLoader(TensorDataset(x1, x2, y), batch_size=batch_size, shuffle=shuffle)
 
 
@@ -635,12 +653,25 @@ def predict_vectors(model, loader, device):
     model.eval()
     preds, trues = [], []
     with torch.no_grad():
-        for z_t, z_action, y in loader:
+        for batch in loader:
+            z_t, z_action, y = batch[:3]
             pred = model(z_t.to(device), z_action.to(device))
             pred = F.normalize(pred, dim=1).cpu().numpy()
             preds.append(pred)
             trues.append(y.numpy())
     return np.concatenate(preds, axis=0), np.concatenate(trues, axis=0)
+
+
+def masked_infonce_loss(logits, labels, next_text_groups, policy):
+    if policy == "none":
+        return F.cross_entropy(logits, labels)
+    if policy != "same_next_text":
+        raise ValueError(f"unknown false-negative mask policy: {policy}")
+    same_next = next_text_groups[:, None].eq(next_text_groups[None, :])
+    diagonal = torch.eye(logits.size(0), dtype=torch.bool, device=logits.device)
+    false_negative_mask = same_next & ~diagonal
+    masked_logits = logits.masked_fill(false_negative_mask, torch.finfo(logits.dtype).min)
+    return F.cross_entropy(masked_logits, labels)
 
 
 def retrieval_metrics(pred, true, topks=(1, 5, 10)):
@@ -706,7 +737,7 @@ def train_one(model_cfg, args):
         raise ValueError(args.architecture)
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
 
-    train_loader = make_loader(train, args.train_batch_size, True)
+    train_loader = make_loader(train, args.train_batch_size, True, include_next_text_groups=args.false_negative_mask != "none")
     dev_loader = make_loader(dev, args.eval_batch_size, False)
     test_loader = make_loader(test, args.eval_batch_size, False)
 
@@ -715,16 +746,21 @@ def train_one(model_cfg, args):
         model.train()
         total_loss = 0.0
         seen = 0
-        for z_t, z_action, y in train_loader:
+        for batch in train_loader:
+            z_t, z_action, y = batch[:3]
             z_t = z_t.to(device)
             z_action = z_action.to(device)
             y = y.to(device)
+            next_text_groups = batch[3].to(device) if len(batch) > 3 else None
             pred = model(z_t, z_action)
             pred_n = F.normalize(pred, dim=1)
             y_n = F.normalize(y, dim=1)
             logits = pred_n @ y_n.T / args.temperature
             labels = torch.arange(logits.size(0), device=device)
-            loss = F.cross_entropy(logits, labels)
+            if next_text_groups is None:
+                loss = F.cross_entropy(logits, labels)
+            else:
+                loss = masked_infonce_loss(logits, labels, next_text_groups, args.false_negative_mask)
             optimizer.zero_grad(set_to_none=True)
             loss.backward()
             optimizer.step()
@@ -761,12 +797,14 @@ def train_one(model_cfg, args):
         "dim": dim,
         "hidden_dim": args.hidden_dim,
         "architecture": args.architecture,
+        "false_negative_mask": args.false_negative_mask,
         "best_epoch": best_epoch,
     }, model_file)
 
     metrics = {
         "model": name,
         "architecture": args.architecture,
+        "false_negative_mask": args.false_negative_mask,
         "embedding_dim": dim,
         "num_train": int(train["z_next"].shape[0]),
         "num_dev": int(dev["z_next"].shape[0]),
@@ -819,6 +857,7 @@ def write_summary(all_metrics):
     with path.open("w", newline="", encoding="utf-8") as f:
         fields = [
             "model", "architecture", "embedding_dim", "num_train", "num_test", "best_epoch",
+            "false_negative_mask",
             "test_cosine_mean", "test_cosine_median", "test_retrieval_top1",
             "test_retrieval_top5", "test_retrieval_top10", "test_mean_target_rank",
             "attribute_cosine_mean", "attribute_top1", "relation_cosine_mean", "relation_top1",
@@ -835,6 +874,7 @@ def write_summary(all_metrics):
                 "num_train": m["num_train"],
                 "num_test": m["num_test"],
                 "best_epoch": m["best_epoch"],
+                "false_negative_mask": m.get("false_negative_mask", "none"),
                 "test_cosine_mean": m["test"]["cosine_mean"],
                 "test_cosine_median": m["test"]["cosine_median"],
                 "test_retrieval_top1": m["test"]["retrieval_top1"],
@@ -868,6 +908,7 @@ def main():
     parser.add_argument("--lr", type=float, default=1e-3)
     parser.add_argument("--weight-decay", type=float, default=1e-4)
     parser.add_argument("--temperature", type=float, default=0.05)
+    parser.add_argument("--false-negative-mask", choices=["none", "same_next_text"], default="none")
     parser.add_argument("--train-batch-size", type=int, default=256)
     parser.add_argument("--eval-batch-size", type=int, default=512)
     parser.add_argument("--encode-batch-size", type=int, default=64)
