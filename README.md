@@ -9,8 +9,11 @@ embedding models. Each example is represented as a triple:
 
 The transition probe encodes `text_t`, `action_text`, and `text_t1` with a
 frozen embedding model, trains a lightweight action-conditioned transition
-head with InfoNCE, and evaluates whether the predicted vector retrieves the
-correct row-level next-state embedding.
+head with InfoNCE, and evaluates whether the predicted vector retrieves an
+equivalent next-state embedding. Exact duplicate triples are removed during
+preprocessing; if multiple examples share the same normalized `text_t1`, the
+main retrieval metric counts any matching next-state text as correct and the
+trainer can mask same-next-state in-batch false negatives.
 
 ## Contents
 
@@ -19,6 +22,12 @@ correct row-level next-state embedding.
 - `scripts/process_*.py`: converters for public state-tracking datasets.
 - `scripts/eval_multistep_rollout.py`: autoregressive and teacher-forced
   multi-step evaluation.
+- `scripts/run_paper_gated_dupaware_mask.sh`: three-seed gated residual FiLM
+  runner for the paper main tables.
+- `scripts/run_ablation_dupaware_mask.sh`: three-seed architecture ablation
+  runner for the paper ablation table.
+- `scripts/run_multistep_dupaware_mask.sh`: autoregressive and teacher-forced
+  multi-step runner for the paper rollout table.
 - `results/summary/`: CSV summaries used for the paper tables.
 - `processed_metadata/`: split-size and conversion metadata. Processed JSONL
   splits are not bundled in this anonymous repository; recreate them from the
@@ -56,6 +65,7 @@ python scripts/next_state_vector_prediction.py \
   --models all-MiniLM-L6-v2 \
   --models-yaml configs/models.yaml \
   --experiment-name smoke_synthetic \
+  --false-negative-mask same_next_text \
   --epochs 2 \
   --train-batch-size 128 \
   --eval-batch-size 256
@@ -81,11 +91,31 @@ python scripts/next_state_vector_prediction.py \
   --architecture gated_residual_film \
   --models Qwen3-Embedding-0.6B bge-large-en-v1.5 e5-large-v2 \
   --models-yaml configs/models.yaml \
-  --seed 20260504
+  --seed 20260504 \
+  --false-negative-mask same_next_text
 ```
 
 Repeat with seeds `20260505` and `20260506` for the reported three-seed
 protocol.
+
+## Paper Experiment Runners
+
+The paper runners are designed for the cached server layout used in the
+experiments (`/root/statebench`). They reuse embedding caches when present and
+write outputs under `outputs/`. On a fresh machine, first recreate the `data/`
+JSONL splits and `configs/models.yaml`, then either adjust the cache paths in
+the runner scripts or let `scripts/next_state_vector_prediction.py` regenerate
+embeddings. The official duplicate-aware runs are:
+
+```bash
+bash scripts/run_paper_gated_dupaware_mask.sh
+bash scripts/run_ablation_dupaware_mask.sh
+bash scripts/run_multistep_dupaware_mask.sh
+```
+
+For the current server backup, the ignored local file `configs/models.yaml`
+has been copied from the server so the same model names and paths are
+available for rerunning on that server image.
 
 ## Notes on Data Release
 

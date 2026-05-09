@@ -4,7 +4,7 @@ set -euo pipefail
 cd /root/statebench
 
 PY=/root/miniconda3/bin/python
-SCRIPT=scripts/eval_scone_rollout.py
+SCRIPT=scripts/eval_multistep_rollout.py
 MAX_JOBS="${MAX_JOBS:-6}"
 LOG_DIR=logs/multistep_dupaware_mask_$(date +%Y%m%d_%H%M%S)
 mkdir -p "$LOG_DIR"

@@ -1,22 +1,29 @@
 models:
   - name: Qwen3-Embedding-0.6B
     path: /path/to/Qwen3-Embedding-0.6B
-    batch_size: 64
+    prefix: ""
+    batch_size: 32
   - name: Qwen3-Embedding-8B
     path: /path/to/Qwen3-Embedding-8B
+    prefix: ""
     batch_size: 8
   - name: bge-large-en-v1.5
     path: /path/to/bge-large-en-v1.5
+    prefix: ""
     batch_size: 64
   - name: e5-large-v2
     path: /path/to/e5-large-v2
+    prefix: "passage: "
     batch_size: 64
   - name: multilingual-e5-large
     path: /path/to/multilingual-e5-large
+    prefix: "passage: "
     batch_size: 64
   - name: jina-embeddings-v3
     path: /path/to/jina-embeddings-v3
+    prefix: ""
     batch_size: 64
   - name: all-MiniLM-L6-v2
     path: sentence-transformers/all-MiniLM-L6-v2
+    prefix: ""
     batch_size: 64
