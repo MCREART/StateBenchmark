@@ -971,6 +971,7 @@ def main():
     parser.add_argument("--overwrite-data", action="store_true")
     parser.add_argument("--overwrite-embeddings", action="store_true")
     parser.add_argument("--skip-cache", action="store_true")
+    parser.add_argument("--cache-only", action="store_true")
     parser.add_argument("--epochs", type=int, default=30)
     parser.add_argument("--patience", type=int, default=5)
     parser.add_argument("--hidden-dim", type=int, default=1024)
@@ -1010,6 +1011,8 @@ def main():
                 print(f"ERROR caching {cfg.get('name')}: {exc}", flush=True)
                 log_error(f"cache:{cfg.get('name')}", exc)
                 raise
+    if args.cache_only:
+        return
 
     all_metrics = []
     for cfg in models:

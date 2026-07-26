@@ -32,6 +32,9 @@ trainer can mask same-next-state in-batch false negatives.
   action-shuffle, counterfactual-action, and metric-sensitivity diagnostics.
 - `scripts/run_review_core.sh`: three-seed reviewer-diagnostic runner over the
   three core datasets and the Qwen3-0.6B, BGE-large, and E5-large encoders.
+- `scripts/run_review_extension_baselines.sh`: cache-only identity, random,
+  lexical, and hard-negative diagnostics on ProPara, ProPara-DeepSeek, and
+  SCONE.
 - `scripts/run_qwen_scale_dimension.sh`: Qwen 0.6B/4B/8B scale comparison and
   Qwen-8B Matryoshka dimension ablation.
 - `scripts/run_jina_task_modes.sh`: Jina no-adapter, text-matching, and
