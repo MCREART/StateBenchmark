@@ -112,4 +112,8 @@ with output.open("w", newline="", encoding="utf-8") as handle:
 print(output)
 PY
 
+if [[ "${CLEANUP_MODELS:-0}" == "1" ]]; then
+  rm -rf "$base_model"
+fi
+
 echo "hidden-state baseline complete"

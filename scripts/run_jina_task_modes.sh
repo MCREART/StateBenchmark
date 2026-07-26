@@ -154,4 +154,8 @@ with output.open("w", newline="", encoding="utf-8") as handle:
 print(output)
 PY
 
+if [[ "${CLEANUP_MODELS:-0}" == "1" ]]; then
+  rm -rf "$MODEL_ROOT/jina-embeddings-v3"
+fi
+
 echo "Jina task-mode experiments complete"

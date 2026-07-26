@@ -8,7 +8,7 @@ MODEL_ROOT="${MODEL_ROOT:-/root/models}"
 MAX_JOBS="${MAX_JOBS:-2}"
 SEEDS=(20260504 20260505 20260506)
 DATASETS=(openpi_c_nl trip_nl_known_only)
-MODELS=(Qwen3-Embedding-0.6B Qwen3-Embedding-4B Qwen3-Embedding-8B)
+read -r -a MODELS <<< "${QWEN_MODELS:-Qwen3-Embedding-0.6B Qwen3-Embedding-4B Qwen3-Embedding-8B}"
 DIMENSIONS=(256 512 1024 2048 4096)
 
 cd "$ROOT"
@@ -152,6 +152,9 @@ for model in "${MODELS[@]}"; do
       wait
     fi
   done
+  if [[ "${CLEANUP_MODELS:-0}" == "1" ]]; then
+    rm -rf "$MODEL_ROOT/$model"
+  fi
 done
 
 "$PYTHON" - <<'PY'
