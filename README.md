@@ -28,6 +28,18 @@ trainer can mask same-next-state in-batch false negatives.
   runner for the paper ablation table.
 - `scripts/run_multistep_dupaware_mask.sh`: autoregressive and teacher-forced
   multi-step runner for the paper rollout table.
+- `scripts/eval_review_diagnostics.py`: identity, random, lexical, hard-negative,
+  action-shuffle, counterfactual-action, and metric-sensitivity diagnostics.
+- `scripts/run_review_core.sh`: three-seed reviewer-diagnostic runner over the
+  three core datasets and the Qwen3-0.6B, BGE-large, and E5-large encoders.
+- `scripts/run_qwen_scale_dimension.sh`: Qwen 0.6B/4B/8B scale comparison and
+  Qwen-8B Matryoshka dimension ablation.
+- `scripts/run_jina_task_modes.sh`: Jina no-adapter, text-matching, and
+  asymmetric query/passage task-mode comparison.
+- `scripts/run_hidden_state_baseline.sh`: mean-pooled final hidden-state
+  baseline using a next-token-pretrained Qwen base model.
+- `scripts/run_action_paraphrase_eval.sh`: low-lexical-overlap action
+  paraphrase robustness evaluation using existing three-seed checkpoints.
 - `results/summary/`: CSV summaries used for the paper tables.
 - `processed_metadata/`: split-size and conversion metadata. Processed JSONL
   splits are not bundled in this anonymous repository; recreate them from the
@@ -72,6 +84,22 @@ python scripts/next_state_vector_prediction.py \
 ```
 
 Outputs are written under `outputs/smoke_synthetic/`.
+
+## Reviewer Diagnostics
+
+On a fresh single-GPU server with the processed JSONL files linked under
+`data/`, run:
+
+```bash
+HF_ENDPOINT=https://hf-mirror.com bash scripts/run_review_core.sh
+```
+
+The runner downloads missing public models, caches each dataset/model embedding
+set once, trains gated residual FiLM with three seeds, and writes flattened
+diagnostic results to `outputs/review_core/review_core_all_runs.csv`. The
+state-matched hard-negative protocol forms each candidate set from next states
+that are most lexically similar to the current state, while always retaining
+the gold candidate. This controls for shared entities and scene context.
 
 ## Public Dataset Workflow
 

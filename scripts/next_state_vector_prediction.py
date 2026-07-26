@@ -445,9 +445,10 @@ def load_encoder(model_cfg):
     )
 
 
-def encode_with_fallback(model, texts, batch_size, prefix, label):
+def encode_with_fallback(model, texts, batch_size, prefix, label, encode_kwargs=None):
     prepared = [prefix + t for t in texts] if prefix else list(texts)
     bs = int(batch_size)
+    encode_kwargs = encode_kwargs or {}
     while bs >= 4:
         try:
             emb = model.encode(
@@ -456,6 +457,7 @@ def encode_with_fallback(model, texts, batch_size, prefix, label):
                 normalize_embeddings=True,
                 convert_to_numpy=True,
                 show_progress_bar=True,
+                **encode_kwargs,
             )
             return np.asarray(emb, dtype=np.float32), bs
         except RuntimeError as exc:
@@ -484,9 +486,34 @@ def cache_embeddings(model_cfg, splits, overwrite=False, default_batch_size=64):
     try:
         for split in missing:
             rows = read_jsonl(DATA_DIR / f"{DATA_PREFIX}_{split}.jsonl")
-            z_t, bs1 = encode_with_fallback(encoder, [r["text_t"] for r in rows], batch_size, prefix, f"{name}:{split}:state")
-            z_a, bs2 = encode_with_fallback(encoder, [r["action_text"] for r in rows], batch_size, prefix, f"{name}:{split}:action")
-            z_next, bs3 = encode_with_fallback(encoder, [r["text_t1"] for r in rows], batch_size, prefix, f"{name}:{split}:next")
+            common_kwargs = model_cfg.get("encode_kwargs") or {}
+            state_kwargs = model_cfg.get("state_encode_kwargs") or common_kwargs
+            action_kwargs = model_cfg.get("action_encode_kwargs") or common_kwargs
+            next_kwargs = model_cfg.get("next_encode_kwargs") or common_kwargs
+            z_t, bs1 = encode_with_fallback(
+                encoder,
+                [r["text_t"] for r in rows],
+                batch_size,
+                prefix,
+                f"{name}:{split}:state",
+                state_kwargs,
+            )
+            z_a, bs2 = encode_with_fallback(
+                encoder,
+                [r["action_text"] for r in rows],
+                batch_size,
+                prefix,
+                f"{name}:{split}:action",
+                action_kwargs,
+            )
+            z_next, bs3 = encode_with_fallback(
+                encoder,
+                [r["text_t1"] for r in rows],
+                batch_size,
+                prefix,
+                f"{name}:{split}:next",
+                next_kwargs,
+            )
             out = EMB_DIR / f"{safe_name(name)}_{split}.npz"
             np.savez_compressed(
                 out,
@@ -729,11 +756,36 @@ def split_metrics(pred, true, labels, target_texts=None):
     return metrics
 
 
+def load_embedding_split(path, embedding_dim=None):
+    source = np.load(path, allow_pickle=False)
+    data = {key: source[key] for key in source.files}
+    source.close()
+    if embedding_dim is None:
+        return data
+    available_dim = int(data["z_next"].shape[1])
+    if embedding_dim > available_dim:
+        raise ValueError(
+            f"requested embedding dimension {embedding_dim} exceeds cached dimension {available_dim}"
+        )
+    for key in ("z_t", "z_action", "z_next"):
+        sliced = np.asarray(data[key][:, :embedding_dim], dtype=np.float32)
+        data[key] = sliced / np.maximum(
+            np.linalg.norm(sliced, axis=1, keepdims=True), 1e-8
+        )
+    return data
+
+
 def train_one(model_cfg, args):
     name = model_cfg["name"]
-    train = np.load(EMB_DIR / f"{safe_name(name)}_train.npz", allow_pickle=False)
-    dev = np.load(EMB_DIR / f"{safe_name(name)}_dev.npz", allow_pickle=False)
-    test = np.load(EMB_DIR / f"{safe_name(name)}_test.npz", allow_pickle=False)
+    train = load_embedding_split(
+        EMB_DIR / f"{safe_name(name)}_train.npz", args.embedding_dim
+    )
+    dev = load_embedding_split(
+        EMB_DIR / f"{safe_name(name)}_dev.npz", args.embedding_dim
+    )
+    test = load_embedding_split(
+        EMB_DIR / f"{safe_name(name)}_test.npz", args.embedding_dim
+    )
     dim = int(train["z_next"].shape[1])
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     if args.architecture == "concat":
@@ -931,6 +983,7 @@ def main():
     parser.add_argument("--train-batch-size", type=int, default=256)
     parser.add_argument("--eval-batch-size", type=int, default=512)
     parser.add_argument("--encode-batch-size", type=int, default=64)
+    parser.add_argument("--embedding-dim", type=int, default=None)
     parser.add_argument("--max-prediction-rows", type=int, default=None)
     args = parser.parse_args()
 
