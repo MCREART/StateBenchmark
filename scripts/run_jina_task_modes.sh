@@ -97,7 +97,9 @@ train_one() {
 
 target="$MODEL_ROOT/jina-embeddings-v3"
 if [[ ! -f "$target/config.json" ]]; then
-  HF_HUB_DISABLE_XET=1 "$HF" download jinaai/jina-embeddings-v3 --local-dir "$target"
+  HF_HUB_DISABLE_XET=1 "$HF" download jinaai/jina-embeddings-v3 \
+    --exclude "onnx/*" --exclude "openvino/*" --exclude "*.onnx" \
+    --exclude "*.bin" --local-dir "$target"
 fi
 write_model_config
 

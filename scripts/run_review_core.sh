@@ -63,7 +63,9 @@ download_model() {
   local repo
   repo=$(model_repo "$model")
   echo "Downloading $repo to $target"
-  HF_HUB_DISABLE_XET=1 "$HF" download "$repo" --local-dir "$target"
+  HF_HUB_DISABLE_XET=1 "$HF" download "$repo" \
+    --exclude "onnx/*" --exclude "openvino/*" --exclude "*.onnx" \
+    --exclude "*.bin" --local-dir "$target"
 }
 
 train_one() {

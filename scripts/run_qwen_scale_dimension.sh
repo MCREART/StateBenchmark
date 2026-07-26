@@ -32,7 +32,9 @@ model_repo() {
 download_model() {
   local model="$1" target="$MODEL_ROOT/$1"
   [[ -f "$target/config.json" ]] && return
-  HF_HUB_DISABLE_XET=1 "$HF" download "$(model_repo "$model")" --local-dir "$target"
+  HF_HUB_DISABLE_XET=1 "$HF" download "$(model_repo "$model")" \
+    --exclude "onnx/*" --exclude "openvino/*" --exclude "*.onnx" \
+    --exclude "*.bin" --local-dir "$target"
 }
 
 write_model_config() {

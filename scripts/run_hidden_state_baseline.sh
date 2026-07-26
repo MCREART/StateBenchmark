@@ -17,7 +17,9 @@ mkdir -p "$MODEL_ROOT" outputs/review_hidden_state logs/review_hidden_state
 
 base_model="$MODEL_ROOT/Qwen3-0.6B-Base"
 if [[ ! -f "$base_model/config.json" ]]; then
-  HF_HUB_DISABLE_XET=1 "$HF" download Qwen/Qwen3-0.6B-Base --local-dir "$base_model"
+  HF_HUB_DISABLE_XET=1 "$HF" download Qwen/Qwen3-0.6B-Base \
+    --exclude "onnx/*" --exclude "openvino/*" --exclude "*.onnx" \
+    --exclude "*.bin" --local-dir "$base_model"
 fi
 
 "$PYTHON" - "$ROOT/configs/models.yaml" "$base_model" <<'PY'
