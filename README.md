@@ -43,6 +43,8 @@ trainer can mask same-next-state in-batch false negatives.
   baseline using a next-token-pretrained Qwen base model.
 - `scripts/run_action_paraphrase_eval.sh`: low-lexical-overlap action
   paraphrase robustness evaluation using existing three-seed checkpoints.
+- `scripts/summarize_review_experiments.py`: aggregate reviewer experiments
+  into a mean/std CSV and a compact Markdown table.
 - `results/summary/`: CSV summaries used for the paper tables.
 - `processed_metadata/`: split-size and conversion metadata. Processed JSONL
   splits are not bundled in this anonymous repository; recreate them from the
