@@ -71,6 +71,44 @@ def unique_target_metrics(scores, target_texts):
     return out
 
 
+def top1_hit_arrays(scores, target_texts):
+    nearest = np.argmax(scores, axis=1)
+    rows = np.arange(scores.shape[0])
+    groups = nsvp.next_text_group_ids(target_texts)
+    return {
+        "top1": groups[nearest] == groups,
+        "row_top1": nearest == rows,
+    }
+
+
+def paired_bootstrap(first_scores, second_scores, target_texts, seed, repeats=2000):
+    first_hits = top1_hit_arrays(first_scores, target_texts)
+    second_hits = top1_hit_arrays(second_scores, target_texts)
+    rng = np.random.default_rng(seed)
+    result = {"bootstrap_repeats": repeats}
+    for metric in ("top1", "row_top1"):
+        differences = (
+            first_hits[metric].astype(np.float32)
+            - second_hits[metric].astype(np.float32)
+        )
+        observed = float(differences.mean())
+        indices = rng.integers(
+            0, len(differences), size=(repeats, len(differences))
+        )
+        samples = differences[indices].mean(axis=1)
+        lower, upper = np.percentile(samples, [2.5, 97.5])
+        two_sided_p = min(
+            1.0,
+            2 * min(float(np.mean(samples <= 0)), float(np.mean(samples >= 0))),
+        )
+        result[metric] = {
+            "difference": observed,
+            "ci95": [float(lower), float(upper)],
+            "bootstrap_p_two_sided": two_sided_p,
+        }
+    return result
+
+
 def lexical_scores(states, actions, next_states):
     corpus = list(next_states)
     queries = [f"{state} {action}" for state, action in zip(states, actions)]
@@ -357,6 +395,26 @@ def main():
                 device,
                 args.seed + 2903,
             ),
+            "paired_comparisons": {
+                "learned_minus_identity": paired_bootstrap(
+                    learned_scores,
+                    identity_scores,
+                    targets,
+                    args.seed + 4101,
+                ),
+                "learned_minus_tfidf": paired_bootstrap(
+                    learned_scores,
+                    tfidf_scores,
+                    targets,
+                    args.seed + 4102,
+                ),
+                "learned_minus_shuffled_action": paired_bootstrap(
+                    learned_scores,
+                    shuffled_scores,
+                    targets,
+                    args.seed + 4103,
+                ),
+            },
         })
 
     output = Path(args.output)

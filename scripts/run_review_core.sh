@@ -104,7 +104,7 @@ evaluate_one() {
   safe=$(safe_name "$model")
   exp="review_core_${dataset}_${safe}_seed${seed}"
   output="outputs/review_core/${dataset}_${safe}_seed${seed}.json"
-  if [[ -f "$output" ]]; then
+  if [[ -f "$output" && "${OVERWRITE_DIAGNOSTICS:-0}" != "1" ]]; then
     echo "cached diagnostics $output"
     return
   fi
