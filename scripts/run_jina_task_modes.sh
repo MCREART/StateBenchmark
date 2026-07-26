@@ -101,6 +101,25 @@ if [[ ! -f "$target/config.json" ]]; then
     --exclude "onnx/*" --exclude "openvino/*" --exclude "*.onnx" \
     --exclude "*.bin" --local-dir "$target"
 fi
+
+# Jina v3 delegates its model implementation to a second Hub repository.
+# Vendor that small code-only dependency so offline loading remains reproducible.
+implementation="$MODEL_ROOT/jina-xlm-roberta-flash-implementation"
+if [[ ! -f "$implementation/modeling_lora.py" ]]; then
+  HF_HUB_DISABLE_XET=1 "$HF" download jinaai/xlm-roberta-flash-implementation \
+    --include "*.py" --local-dir "$implementation"
+fi
+cp "$implementation"/*.py "$target"/
+sed -i \
+  's#jinaai/xlm-roberta-flash-implementation--##g' \
+  "$target/config.json"
+
+# Transformers does not discover every transitive relative import in this
+# implementation, so seed the dynamic-module cache with the vendored files.
+dynamic_cache="${HF_MODULES_CACHE:-$HOME/.cache/huggingface/modules}/transformers_modules/jina_hyphen_embeddings_hyphen_v3"
+mkdir -p "$dynamic_cache"
+cp "$target"/*.py "$dynamic_cache"/
+
 write_model_config
 
 for mode in "${MODES[@]}"; do
