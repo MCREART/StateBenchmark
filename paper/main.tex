@@ -3,8 +3,6 @@
 \usepackage{neurips_2026}
 
 \usepackage[utf8]{inputenc}
-\usepackage{hyperref}
-\hypersetup{hidelinks}
 \usepackage{url}
 \usepackage{booktabs}
 \usepackage{amsfonts}
@@ -12,6 +10,9 @@
 \usepackage{xcolor}
 \usepackage{graphicx}
 \usepackage{flafter}
+\usepackage{float}
+\usepackage{hyperref}
+\hypersetup{hidelinks}
 
 \title{Beyond Next-Token: Evaluating LLM Embeddings for Next-State Dynamics}
 
@@ -26,20 +27,16 @@
 \maketitle
 
 \begin{abstract}
-Large language models are predominantly built around the next-token prediction paradigm, but many understanding and reasoning problems are more naturally viewed as next-state prediction: given a current world state and an action, a model should predict the resulting world state. Studying this paradigm requires a representation space for natural-language states. Text embedding models, which are explicitly designed to represent text as vectors, provide a natural substrate for asking whether such state representations are updateable by actions. We propose next-state vector prediction as a diagnostic evaluation for this question. Given a natural-language current state and action, we freeze the text encoder and train only a lightweight transition probe to predict the embedding of the resulting next state. The predicted vector is evaluated by whether it retrieves an equivalent next-state embedding among candidates. We build a unified evaluation suite from synthetic state changes and five public state-tracking resources—ProPara, OpenPI-C, SCONE, ALFWorld, and TRIP—and compare six encoders from five embedding families, including Qwen3-Embedding, BGE, E5, Jina, and MiniLM. Results show that frozen text embedding spaces contain usable one-step transition structure: top-1 retrieval reaches 81.4\% on OpenPI-C and 98.7\% on TRIP-known state transitions. However, row-level diagnostics and multi-step rollout reveal important limitations. Predicted vectors often land near semantically equivalent states but fail to identify the exact object or state instance, and recursively feeding predicted embeddings back into the transition model leads to rapid error accumulation. These findings suggest that current text embeddings support local one-step state-transition probes, but remain far from stable long-horizon world-state simulation.
+Autoregressive language models are predominantly built around the next-token prediction paradigm, but many understanding and reasoning problems are more naturally viewed as next-state prediction: given a current world state and an action, a model should predict the resulting world state. Studying this paradigm requires a representation space for natural-language states. Text embedding models, which are explicitly designed to represent text as vectors, provide a natural substrate for asking whether such state representations are updateable by actions. We propose next-state vector prediction as a diagnostic evaluation for this question. Given a natural-language current state and action, we freeze the text encoder and train only a lightweight transition probe to predict the embedding of the resulting next state. The predicted vector is evaluated by whether it retrieves an equivalent next-state embedding among candidates. We build a unified evaluation suite from synthetic state changes and five public state-tracking resources—ProPara, OpenPI-C, SCONE, ALFWorld, and TRIP—and compare six encoders from five embedding families, including Qwen3-Embedding, BGE, E5, Jina, and MiniLM. Results show that frozen text embedding spaces contain usable one-step transition structure: top-1 retrieval reaches 81.4\% on OpenPI-C and 98.7\% on TRIP-known state transitions. However, row-level diagnostics and multi-step rollout reveal important limitations. Predicted vectors often land near semantically equivalent states but fail to identify the exact object or state instance, and recursively feeding predicted embeddings back into the transition model leads to rapid error accumulation. These findings suggest that current text embeddings support local one-step state-transition probes, but remain far from stable long-horizon world-state simulation.
 \end{abstract}
 
 \section{Introduction}
 
-Language models are overwhelmingly optimized for next-token prediction. This objective has produced broadly useful representations, but it does not directly ask whether a model understands how states change. If a scene starts as ``a ball is on the table'' and the action is ``the ball is painted red,'' the desired result is not merely the next likely phrase, but the next world state: ``a red ball is on the table.'' This paper asks a simple question: can frozen text embedding spaces be used as a substrate for such next-state dynamics?
+Autoregressive language models are commonly pretrained with next-token prediction. The encoders evaluated here are instead explicitly optimized to produce useful text embeddings, often through multi-stage contrastive training on top of a generative or masked-language-model backbone. Our question is therefore not whether their final training objective is next-token prediction, but whether the resulting frozen embedding geometry supports a different behavioral operation: updating a state representation after an action. If a scene starts as ``a ball is on the table'' and the action is ``the ball is painted red,'' the desired result is not merely the next likely phrase, but the next world state: ``a red ball is on the table.''
 
 We formulate next-state prediction as a vector-valued transition problem. Given text descriptions of a current state $s_t$ and action $a_t$, we encode both with a frozen embedding model and train a small transition network $f_\theta$ to predict the embedding of the next state $s_{t+1}$. The model is trained with an InfoNCE retrieval objective, so the predicted vector must be close to the true next-state embedding and far from other next-state candidates. This framing avoids the ambiguity of surface-form text generation while preserving a concrete behavioral evaluation: whether the predicted vector retrieves the correct next state.
 
-Our central modeling choice is a gated residual FiLM transition. Concatenating state and action vectors treats the action as another input feature. Pure FiLM modulation can be too destructive because it scales and shifts every state dimension. We therefore use the action embedding to produce feature-wise scale, shift, and gate parameters, then add a gated modulation update back to the original state:
-\begin{equation}
-  h_{\mathrm{mod}} = h_t + \sigma(\eta(a_t)) \odot (\gamma(a_t) \odot h_t + \beta(a_t)).
-\end{equation}
-This architecture expresses actions as conditional transformations while retaining a direct path for the original state and learning how strongly each dimension should be updated.
+Our central modeling choice is a gated residual feature-wise linear modulation (FiLM) transition~\citep{perez2017film}. Concatenation treats the action as another input feature, whereas standard FiLM scales and shifts every state dimension without an explicit identity path. We use the action embedding to predict feature-wise scale, shift, and gate parameters, then add the gated update back to the original state. This expresses actions as conditional transformations while preserving unchanged state information; Section~\ref{sec:method} gives the full equations and Section~6.2 tests the alternatives.
 
 We evaluate six encoders from five embedding families: Qwen3-Embedding-0.6B and Qwen3-Embedding-8B~\citep{zhang2025qwen3embedding}, bge-large-en-v1.5~\citep{xiao2024cpack}, e5-large-v2~\citep{wang2022e5}, jina-embeddings-v3~\citep{sturua2024jinaembeddingsv3}, and all-MiniLM-L6-v2~\citep{huggingfaceAllMiniLML6V2,wang2020minilm}. We run all six encoders on the core public datasets, and use the original three encoders across the full extension suite covering procedural processes, instructional state changes, embodied household tasks, and physical commonsense stories. The resulting benchmark suite spans attribute changes, location changes, existence changes, possession, containment, heating, cooling, cleaning, opening, and object transformation.
 
@@ -67,7 +64,7 @@ Procedural and commonsense state tracking datasets evaluate whether models can f
 Sentence embedding models turn text into fixed-dimensional vectors for semantic similarity and retrieval~\citep{reimers2019sentencebert}. We evaluate several modern open embedding families. E5 trains text embeddings with weakly supervised contrastive pre-training over large text-pair collections~\citep{wang2022e5}. BGE-large-en-v1.5 is part of the BGE/C-Pack family, which packages large-scale embedding data, benchmarks, and models and reports strong MTEB-style retrieval performance~\citep{xiao2024cpack}. Qwen3-Embedding-0.6B belongs to the Qwen3 Embedding series, which builds embedding and reranking models on top of Qwen3 foundation models with multi-stage training and synthetic data generation~\citep{zhang2025qwen3embedding}. In the later encoder sweep, we additionally evaluate jina-embeddings-v3~\citep{sturua2024jinaembeddingsv3} and all-MiniLM-L6-v2, a Sentence-Transformers model built from a compact MiniLM encoder~\citep{huggingfaceAllMiniLML6V2,wang2020minilm}. These models are usually evaluated by retrieval or semantic similarity; our question is whether their frozen geometries also support action-conditioned movement from one world-state description to another.
 
 \paragraph{Latent dynamics and world models.}
-Learning a transition function in latent space is central to world-model and model-based reinforcement-learning systems. World Models learn compact latent representations and predictive dynamics for control~\citep{ha2018worldmodels}, while Dreamer-style agents learn behaviors through latent imagination~\citep{hafner2020dreamer}. Dynalang brings this idea closer to language by learning a multimodal world model that predicts future text and image representations~\citep{lin2024dynalang}. A parallel line asks whether sequence models trained for next-token or next-move prediction acquire internal world representations, as in Othello-GPT~\citep{li2023othello}. Our work differs by explicitly training a lightweight transition operator over frozen natural-language embedding vectors rather than probing hidden activations or training an environment agent.
+Learning a transition function in latent space is central to world-model and model-based reinforcement-learning systems. World Models learn compact latent representations and predictive dynamics for control~\citep{ha2018worldmodels}, while Dreamer-style agents learn behaviors through latent imagination~\citep{hafner2020dreamer}. Dynalang brings this idea closer to language by learning a multimodal world model that predicts future text and image representations~\citep{lin2024dynalang}. A parallel line asks whether sequence models trained for next-token or next-move prediction acquire internal world representations, as in Othello-GPT~\citep{li2023othello}. \citet{hosseini2023straighten} study how next-token-trained models straighten hidden-state sentence trajectories, providing a complementary analysis of predictive geometry inside autoregressive models. Our work differs by explicitly training a lightweight transition operator over frozen natural-language embedding vectors rather than probing hidden activations or training an environment agent.
 
 \paragraph{Conditional modulation and contrastive prediction.}
 Our transition module is inspired by feature-wise linear modulation, which conditions neural computation through learned per-feature scale and shift parameters~\citep{perez2017film}. We adapt this mechanism to language embedding dynamics by using the action embedding to modulate the state embedding, then adding the original state back as a residual path. The training objective follows contrastive predictive coding, where future representations are predicted with an InfoNCE-style contrastive loss~\citep{oord2018cpc}. In our setting, the positives are frozen embeddings of true next states and the negatives are other next-state candidates in the minibatch.
@@ -81,6 +78,7 @@ Each example is a triple $(x_t, u_t, x_{t+1})$, where $x_t$ is a natural languag
 The transition model predicts $\hat{y}_t = f_\theta(h_t, a_t)$. At test time, we rank candidate next-state embeddings by cosine similarity to $\hat{y}_t$. The primary metric is top-$k$ retrieval accuracy: a prediction is correct if any candidate with the same normalized next-state text is among the $k$ nearest candidates.
 
 \section{Method}
+\label{sec:method}
 
 \subsection{Gated Residual FiLM Transition Model}
 
@@ -159,40 +157,40 @@ Table~\ref{tab:dataset-examples} shows representative converted examples. The co
 
 \subsection{Main Results}
 
-Table~\ref{tab:core-results} reports the three datasets that were run with all six encoders, so models can be compared within the same dataset group. Table~\ref{tab:extended-results} collects the remaining datasets as a separate extension set.
+Table~\ref{tab:core-results} reports the three datasets that were run with all six encoders, including both equivalent-next-state and stricter row-level retrieval. Table~\ref{tab:extended-results} collects the remaining datasets as a separate extension set.
 
 Across the core datasets, one-step retrieval is substantially above chance, but the difficulty varies sharply by dataset. OpenPI-C shows strong transition recoverability, while TRIP-known and ALFWorld-noGoto become very high under equivalent-next-state retrieval because many examples share the same resulting state description. Row-level diagnostic scores in Appendix~\ref{app:row-level} show that these datasets still contain substantial fine-grained instance ambiguity.
 
 \begin{table}[t]
   \centering
-  \caption{Core datasets with all six encoders using gated residual FiLM. Values are mean $\pm$ standard deviation over three seeds. Top-$k$ counts retrieval of any candidate with the same normalized next-state text as correct. Bold marks the best Top-1 encoder within each dataset group.}
+  \caption{Core datasets with all six encoders using gated residual FiLM. Values are mean $\pm$ standard deviation over three seeds. Eq.\ Top-$k$ counts any candidate with the same normalized next-state text as correct; Row Top-1 requires the original transition row. Bold marks the best Eq.\ Top-1 encoder within each dataset group.}
   \label{tab:core-results}
   \tiny
   \setlength{\tabcolsep}{2pt}
   \begin{tabular}{llrrrr}
     \toprule
-    Dataset & Encoder & Cosine & Top-1 & Top-5 & Top-10 \\
+    Dataset & Encoder & Row Top-1 & Eq.\ Top-1 & Eq.\ Top-5 & Eq.\ Top-10 \\
     \midrule
-    OpenPI-C & \textbf{Qwen3-0.6B} & $0.532{\pm}0.001$ & $\mathbf{81.41{\pm}0.11}$ & $96.93{\pm}0.40$ & $99.16{\pm}0.15$ \\
-    OpenPI-C & Qwen3-Embedding-8B & $0.488{\pm}0.008$ & $77.96{\pm}0.71$ & $95.50{\pm}0.08$ & $98.51{\pm}0.10$ \\
-    OpenPI-C & jina-embeddings-v3 & $0.538{\pm}0.006$ & $75.78{\pm}0.95$ & $95.39{\pm}0.21$ & $98.29{\pm}0.23$ \\
-    OpenPI-C & all-MiniLM-L6-v2 & $0.619{\pm}0.002$ & $75.16{\pm}0.53$ & $95.19{\pm}0.16$ & $98.13{\pm}0.09$ \\
-    OpenPI-C & bge-large & $0.483{\pm}0.001$ & $76.11{\pm}0.23$ & $95.01{\pm}0.40$ & $97.98{\pm}0.10$ \\
-    OpenPI-C & e5-large & $0.328{\pm}0.004$ & $72.46{\pm}0.81$ & $92.22{\pm}0.58$ & $96.26{\pm}0.47$ \\
+    OpenPI-C & \textbf{Qwen3-0.6B} & $74.84{\pm}0.12$ & $\mathbf{81.41{\pm}0.11}$ & $96.93{\pm}0.40$ & $99.16{\pm}0.15$ \\
+    OpenPI-C & Qwen3-Embedding-8B & $71.30{\pm}0.95$ & $77.96{\pm}0.71$ & $95.50{\pm}0.08$ & $98.51{\pm}0.10$ \\
+    OpenPI-C & jina-embeddings-v3 & $69.36{\pm}0.94$ & $75.78{\pm}0.95$ & $95.39{\pm}0.21$ & $98.29{\pm}0.23$ \\
+    OpenPI-C & all-MiniLM-L6-v2 & $68.95{\pm}0.17$ & $75.16{\pm}0.53$ & $95.19{\pm}0.16$ & $98.13{\pm}0.09$ \\
+    OpenPI-C & bge-large & $69.49{\pm}0.47$ & $76.11{\pm}0.23$ & $95.01{\pm}0.40$ & $97.98{\pm}0.10$ \\
+    OpenPI-C & e5-large & $66.09{\pm}1.01$ & $72.46{\pm}0.81$ & $92.22{\pm}0.58$ & $96.26{\pm}0.47$ \\
     \midrule
-    TRIP-known & \textbf{Qwen3-0.6B} & $0.581{\pm}0.004$ & $\mathbf{98.72{\pm}0.52}$ & $99.96{\pm}0.07$ & $100.00{\pm}0.00$ \\
-    TRIP-known & Qwen3-Embedding-8B & $0.527{\pm}0.007$ & $96.54{\pm}0.43$ & $99.74{\pm}0.13$ & $99.96{\pm}0.07$ \\
-    TRIP-known & jina-embeddings-v3 & $0.575{\pm}0.004$ & $97.63{\pm}0.85$ & $99.85{\pm}0.07$ & $100.00{\pm}0.00$ \\
-    TRIP-known & all-MiniLM-L6-v2 & $0.717{\pm}0.001$ & $97.93{\pm}0.28$ & $99.89{\pm}0.00$ & $100.00{\pm}0.00$ \\
-    TRIP-known & bge-large & $0.548{\pm}0.005$ & $98.16{\pm}0.13$ & $99.89{\pm}0.11$ & $100.00{\pm}0.00$ \\
-    TRIP-known & e5-large & $0.405{\pm}0.004$ & $98.53{\pm}0.49$ & $99.85{\pm}0.07$ & $100.00{\pm}0.00$ \\
+    TRIP-known & \textbf{Qwen3-0.6B} & $67.76{\pm}0.98$ & $\mathbf{98.72{\pm}0.52}$ & $99.96{\pm}0.07$ & $100.00{\pm}0.00$ \\
+    TRIP-known & Qwen3-Embedding-8B & $66.37{\pm}0.28$ & $96.54{\pm}0.43$ & $99.74{\pm}0.13$ & $99.96{\pm}0.07$ \\
+    TRIP-known & jina-embeddings-v3 & $67.94{\pm}0.62$ & $97.63{\pm}0.85$ & $99.85{\pm}0.07$ & $100.00{\pm}0.00$ \\
+    TRIP-known & all-MiniLM-L6-v2 & $67.38{\pm}0.56$ & $97.93{\pm}0.28$ & $99.89{\pm}0.00$ & $100.00{\pm}0.00$ \\
+    TRIP-known & bge-large & $67.83{\pm}0.58$ & $98.16{\pm}0.13$ & $99.89{\pm}0.11$ & $100.00{\pm}0.00$ \\
+    TRIP-known & e5-large & $68.62{\pm}0.23$ & $98.53{\pm}0.49$ & $99.85{\pm}0.07$ & $100.00{\pm}0.00$ \\
     \midrule
-    ALFWorld-noGoto & Qwen3-0.6B & $0.576{\pm}0.004$ & $99.16{\pm}0.36$ & $100.00{\pm}0.00$ & $100.00{\pm}0.00$ \\
-    ALFWorld-noGoto & Qwen3-Embedding-8B & $0.566{\pm}0.008$ & $99.06{\pm}0.27$ & $99.84{\pm}0.00$ & $99.90{\pm}0.09$ \\
-    ALFWorld-noGoto & jina-embeddings-v3 & $0.550{\pm}0.006$ & $99.27{\pm}0.09$ & $100.00{\pm}0.00$ & $100.00{\pm}0.00$ \\
-    ALFWorld-noGoto & all-MiniLM-L6-v2 & $0.671{\pm}0.006$ & $98.80{\pm}0.24$ & $99.58{\pm}0.09$ & $99.90{\pm}0.09$ \\
-    ALFWorld-noGoto & \textbf{bge-large} & $0.523{\pm}0.004$ & $\mathbf{99.37{\pm}0.16}$ & $99.95{\pm}0.09$ & $99.95{\pm}0.09$ \\
-    ALFWorld-noGoto & e5-large & $0.380{\pm}0.002$ & $98.90{\pm}0.42$ & $99.90{\pm}0.18$ & $100.00{\pm}0.00$ \\
+    ALFWorld-noGoto & Qwen3-0.6B & $17.84{\pm}2.43$ & $99.16{\pm}0.36$ & $100.00{\pm}0.00$ & $100.00{\pm}0.00$ \\
+    ALFWorld-noGoto & Qwen3-Embedding-8B & $18.47{\pm}0.50$ & $99.06{\pm}0.27$ & $99.84{\pm}0.00$ & $99.90{\pm}0.09$ \\
+    ALFWorld-noGoto & jina-embeddings-v3 & $19.57{\pm}1.18$ & $99.27{\pm}0.09$ & $100.00{\pm}0.00$ & $100.00{\pm}0.00$ \\
+    ALFWorld-noGoto & all-MiniLM-L6-v2 & $18.42{\pm}1.89$ & $98.80{\pm}0.24$ & $99.58{\pm}0.09$ & $99.90{\pm}0.09$ \\
+    ALFWorld-noGoto & \textbf{bge-large} & $20.20{\pm}0.40$ & $\mathbf{99.37{\pm}0.16}$ & $99.95{\pm}0.09$ & $99.95{\pm}0.09$ \\
+    ALFWorld-noGoto & e5-large & $20.57{\pm}0.72$ & $98.90{\pm}0.42$ & $99.90{\pm}0.18$ & $100.00{\pm}0.00$ \\
     \bottomrule
   \end{tabular}
 \end{table}
@@ -317,7 +315,10 @@ Multi-step rollout reveals a sharper limitation than one-step retrieval. On SCON
 On TRIP-known, object attributes such as mixed, edible, functional, running, pieces, and location are typically easier than human location. For Qwen3, top-1 reaches 75.0\% on object location, 78.4\% on existence, 81.3\% on functional, 85.7\% on edible, and 92.9\% on mixed, but only 11.5\% on human location. Human movement annotations are often generic, e.g., ``Tom is in one location'' to ``Tom is in a new location,'' creating many near-identical candidates.
 
 \paragraph{Embedding model differences.}
-The best encoder depends on the dataset: Qwen3-Embedding-0.6B is strongest on OpenPI-C and TRIP-known, while bge-large-en-v1.5 is strongest on ALFWorld-noGoto and ProPara. Cosine alignment and retrieval are related but not identical; for example, all-MiniLM-L6-v2 has high cosine on TRIP-known but does not yield the best top-1 retrieval. These differences matter because the transition model is trained on top of a frozen geometry; the downstream difficulty depends on how each encoder separates fine-grained state descriptions.
+The best encoder depends on the dataset: Qwen3-Embedding-0.6B is strongest on OpenPI-C and TRIP-known, while bge-large-en-v1.5 is strongest on ALFWorld-noGoto and ProPara. Equivalent-state and row-level retrieval are related but not interchangeable: ALFWorld is nearly saturated under exact-text equivalence while remaining difficult at instance resolution. These differences matter because the transition model is trained on top of a frozen geometry; the downstream difficulty depends on how each encoder separates fine-grained state descriptions.
+
+\paragraph{Controls and robustness.}
+Appendix~\ref{app:additional-diagnostics} reports additional controls. The learned probe significantly exceeds identity and TF--IDF baselines in all 27 core dataset--encoder--seed runs under paired bootstrap tests ($p<0.001$), and retains a clear advantage inside 50-candidate lexical neighborhoods. Shuffling actions causes significant drops on every OpenPI-C and ALFWorld run, but not on TRIP-known, exposing a strong state prior in that split. LLM-paraphrased test actions change average top-1 by at most 0.67 points. Encoder scale is not monotonic: Qwen3-Embedding-0.6B outperforms 4B and 8B in the controlled sweep. Jina task adapters have dataset-dependent effects, its Matryoshka representation saturates at a dataset-dependent dimension, and mean-pooled base-model hidden states are substantially weaker.
 
 \paragraph{Qualitative failure modes.}
 Inspection of top-1 retrieval errors shows that the most meaningful failures are not random mismatches. On OpenPI-C, predictions often identify the correct entity and attribute but choose a nearby value, e.g., hot versus boiling or smooth versus smoother, or confuse adjacent schema fields such as wetness and moisture. On ALFWorld-noGoto, the model usually recovers the coarse household effect, such as placing an object into a receptacle, but selects the wrong instance, e.g., shelf versus bowl or cabinet versus drawer. SCONE errors are dominated by long structured states with high lexical overlap: the prediction may preserve most of the board or beaker description while changing the wrong position, color, or quantity. ProPara failures more often involve entity lifecycle changes, such as failing to infer that a seed is no longer present after it sprouts, or that water disappears after being squeezed from peat. These patterns suggest that frozen text embeddings support coarse transition type, but still struggle with fine-grained variable binding and lifecycle updates.
@@ -343,6 +344,9 @@ We presented next-state vector prediction as a way to test whether frozen text e
 
 \paragraph{Training details.}
 All transition heads are trained on frozen encoder outputs; no embedding model parameters are updated. Unless otherwise stated, we train for at most 30 epochs with early stopping patience 5 on dev cosine similarity. We use AdamW with learning rate $10^{-3}$, weight decay $10^{-4}$, dropout 0.05, hidden dimension 1024, train batch size 256, evaluation batch size 512, embedding batch size 64, and InfoNCE temperature $\tau=0.05$. We run three seeds, 20260504, 20260505, and 20260506, for the official gated residual FiLM results. Embeddings are $\ell_2$-normalized for retrieval evaluation, and top-$k$ metrics rank the predicted vector against all candidate next-state embeddings in the corresponding test split.
+
+\paragraph{ProPara natural-language rewriting.}
+For ProPara-DeepSeek, we rewrite all 3,153 changed-state examples with \texttt{deepseek-v4-flash} at temperature 0.2. The prompt asks for one concise English sentence for each of \texttt{text\_t} and \texttt{text\_t1}, requires exact preservation of entity, location, and existence semantics, and forbids adding facts. The action is supplied only as context and is copied unchanged. The model returns JSON, failed calls are retried, and the full run produced no failed examples.
 
 \paragraph{Duplicate next states.}
 We remove exact duplicate triples $(x_t,u_t,x_{t+1})$ during preprocessing, but do not collapse examples that share the same next-state text while differing in current state, action, entity, or trajectory context. The main retrieval metric treats any candidate with the same normalized next-state text as correct, and InfoNCE training masks same-next-state examples in a minibatch as false negatives. We also report row-level retrieval in Table~\ref{tab:row-level-diagnostic}, where only the original test row is counted as correct.
@@ -393,11 +397,94 @@ We remove exact duplicate triples $(x_t,u_t,x_{t+1})$ during preprocessing, but 
   \end{tabular}
 \end{table}
 
+\section{Additional Reviewer Diagnostics}
+\label{app:additional-diagnostics}
+
+\paragraph{Baselines, action dependence, and paraphrases.}
+Table~\ref{tab:reviewer-controls} compares the learned transition with non-learned controls and action perturbations. Values average the original three encoders and three seeds. For statistical testing, we draw 2,000 paired bootstrap samples of per-example top-1 hit indicators for each dataset--encoder--seed run. Learned retrieval exceeds both identity and TF--IDF with $p<0.001$ in all 27 runs. Learned retrieval also exceeds shuffled-action retrieval with $p<0.001$ in all 18 OpenPI-C and ALFWorld runs, but in none of the nine TRIP-known runs. This confirms action sensitivity on OpenPI-C and ALFWorld while identifying TRIP-known as strongly state-prior dominated. Replacing each test action with an independently generated natural-language paraphrase causes only small changes. Absolute cosine is strongly encoder dependent: averaging the original encoders and seeds, two randomly paired test next states have cosine 0.689 on OpenPI-C, 0.633 on TRIP-known, and 0.716 on ALFWorld. This anisotropy motivates rank-based retrieval rather than interpreting raw cosine as a calibrated score.
+
+\begin{table}[h]
+  \centering
+  \caption{Additional top-1 controls, averaged over the original three encoders and three seeds. Random uses an arbitrary normalized vector; paraphrased evaluates the learned probe after LLM rewriting of test actions.}
+  \label{tab:reviewer-controls}
+  \small
+  \setlength{\tabcolsep}{3.5pt}
+  \begin{tabular}{lrrrrrr}
+    \toprule
+    Dataset & Random & Identity & TF--IDF & Learned & Shuffled & Paraphrased \\
+    \midrule
+    OpenPI-C & 0.07 & 47.70 & 66.11 & 76.82 & 73.58 & 76.71 \\
+    TRIP-known & 0.38 & 52.99 & 62.91 & 98.50 & 98.41 & 98.50 \\
+    ALFWorld-noGoto & 1.44 & 19.36 & 30.30 & 99.08 & 79.59 & 98.41 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\paragraph{Lexically hard candidate neighborhoods.}
+To test whether gains survive a more confusable candidate set, for each test example we select the 50 next-state candidates whose current-state texts are most similar to the query current state under TF--IDF, forcing inclusion of the target. Averaged over the original three encoders and three seeds, equivalent-state Top-1 for Identity / TF--IDF / Learned is 48.85/67.88/77.57 on OpenPI-C, 53.59/65.95/99.01 on TRIP-known, and 19.47/30.93/99.08 on ALFWorld-noGoto. The corresponding row-level values are 46.39/63.84/71.23, 35.29/43.97/68.33, and 2.88/6.75/19.52. This is a lexical-neighborhood stress test rather than a causal minimal-pair evaluation, but it shows that the learned probe's advantage is not eliminated by restricting retrieval to nearby current-state contexts.
+
+\paragraph{Encoder scale and embedding dimension.}
+Table~\ref{tab:qwen-scale-dimension} uses a controlled rerun on OpenPI-C and TRIP-known. Increasing Qwen encoder size does not monotonically improve transition retrieval. Within Qwen3-Embedding-8B, OpenPI-C benefits from the full representation, whereas TRIP-known is already saturated at smaller dimensions and peaks at 512 dimensions.
+
+\begin{table}[H]
+  \centering
+  \caption{Qwen scale and embedding-dimension sweep. Values are equivalent-next-state top-1, mean $\pm$ standard deviation over three seeds.}
+  \label{tab:qwen-scale-dimension}
+  \footnotesize
+  \setlength{\tabcolsep}{1.5pt}
+  \begin{tabular}{lrrrrrrr}
+    \toprule
+    Dataset & Qwen-0.6B & Qwen-4B & 8B-256 & 8B-512 & 8B-1024 & 8B-2048 & 8B-4096 \\
+    \midrule
+    OpenPI-C & $81.18{\pm}0.05$ & $77.96{\pm}0.36$ & $74.37{\pm}0.19$ & $76.45{\pm}0.68$ & $76.98{\pm}0.40$ & $76.93{\pm}1.00$ & $77.73{\pm}0.81$ \\
+    TRIP-known & $98.72{\pm}0.52$ & $97.37{\pm}0.66$ & $98.20{\pm}1.11$ & $98.42{\pm}0.20$ & $97.90{\pm}0.13$ & $96.17{\pm}0.69$ & $96.47{\pm}0.36$ \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\paragraph{Task adapters and hidden-state control.}
+Jina's asymmetric retrieval adapter is best on OpenPI-C, while text matching is best on TRIP-known, so task selection is not universally beneficial. A transition probe over mean-pooled hidden states from the untuned Qwen3-0.6B base model is much weaker and less stable than Qwen3-Embedding-0.6B. This suggests that embedding-specific training, rather than model size alone, contributes materially to predictable transition geometry.
+
+\begin{table}[H]
+  \centering
+  \caption{Jina task-mode and untuned hidden-state controls. Values are equivalent-next-state top-1, mean $\pm$ standard deviation over three seeds.}
+  \label{tab:jina-hidden-controls}
+  \small
+  \setlength{\tabcolsep}{3pt}
+  \begin{tabular}{lrrrrr}
+    \toprule
+    Dataset & Jina-none & Text match & Asym.\ retr. & Base hidden & Qwen-0.6B \\
+    \midrule
+    OpenPI-C & $75.65{\pm}0.64$ & $73.23{\pm}1.26$ & $77.95{\pm}0.27$ & $51.66{\pm}4.24$ & $81.18{\pm}0.05$ \\
+    TRIP-known & $97.59{\pm}0.98$ & $98.84{\pm}0.17$ & $98.12{\pm}0.17$ & $84.97{\pm}10.36$ & $98.72{\pm}0.52$ \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\paragraph{Jina Matryoshka dimension.}
+We additionally truncate the no-adapter Jina representation to its leading Matryoshka dimensions and train the same probe. OpenPI-C improves steadily with dimension, with diminishing returns after 512, whereas TRIP-known reaches its plateau by 256 dimensions. The unstable 32-dimensional TRIP result indicates that overly aggressive compression can remove transition-relevant structure.
+
+\begin{table}[H]
+  \centering
+  \caption{Jina Matryoshka dimension sweep. Values are equivalent-next-state top-1, mean $\pm$ standard deviation over three seeds.}
+  \label{tab:jina-dimension}
+  \footnotesize
+  \setlength{\tabcolsep}{2pt}
+  \begin{tabular}{lrrrrrrr}
+    \toprule
+    Dataset & 32 & 64 & 128 & 256 & 512 & 768 & 1024 \\
+    \midrule
+    OpenPI-C & $54.71{\pm}2.09$ & $65.63{\pm}0.41$ & $70.95{\pm}1.21$ & $73.05{\pm}1.56$ & $74.91{\pm}0.45$ & $75.24{\pm}0.81$ & $75.65{\pm}0.64$ \\
+    TRIP-known & $61.56{\pm}11.33$ & $83.01{\pm}1.05$ & $88.88{\pm}1.44$ & $97.22{\pm}0.72$ & $97.44{\pm}1.19$ & $96.99{\pm}1.17$ & $97.59{\pm}0.98$ \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
 \paragraph{Reproducibility package.}
 The anonymous supplemental package includes preprocessing, training, evaluation, and aggregation scripts, model-configuration templates, processed split metadata, and result-summary tables. The experiments can be reproduced from regenerated processed JSONL splits and scripts used to encode frozen embeddings, train the transition heads, and evaluate one-step and multi-step retrieval. The main scripts are the next-state vector prediction trainer and the autoregressive/teacher-forced rollout evaluator; processed files use the common fields \texttt{text\_t}, \texttt{action\_text}, and \texttt{text\_t1}. The official tables are generated from per-seed CSV summaries and then aggregated into mean and standard deviation tables.
 
 \paragraph{Compute resources.}
-Experiments were run on a cloud GPU workstation with an NVIDIA RTX 4090D GPU with 24GB memory, CPU workers, and local SSD storage for embedding caches. Large encoder sweeps were run as independent jobs over dataset--encoder--seed combinations, with embedding caches reused across architecture and rollout evaluations. Once frozen embeddings are cached, each transition-probe run takes roughly 10--100 seconds depending on dataset and encoder; the logged probe-training suites total about 1--2 single-GPU hours. End-to-end reproduction including first-time embedding extraction requires several single-GPU hours. The reported results require substantially less compute than full LLM fine-tuning because all encoders are frozen and only lightweight transition heads are trained.
+Experiments were run on cloud GPU workstations with an NVIDIA RTX 4090D GPU with 24GB memory and an NVIDIA RTX 5090 GPU with 32GB memory, CPU workers, and local SSD storage for embedding caches. The Qwen scale, Jina task-mode, hidden-state, and reviewer-diagnostic sweeps used the RTX 5090; earlier main and rollout suites used the RTX 4090D. Jobs were separated by dataset--encoder--seed combination, with embedding caches reused across architecture and rollout evaluations. Once frozen embeddings are cached, each transition-probe run takes roughly 10--100 seconds depending on dataset and encoder; the logged probe-training suites total about 1--2 single-GPU hours. End-to-end reproduction including first-time embedding extraction requires several single-GPU hours. The reported results require substantially less compute than full model fine-tuning because all encoders are frozen and only lightweight transition heads are trained.
 
 \section{Asset and Dataset Documentation}
 
